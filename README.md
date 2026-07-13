@@ -2,7 +2,7 @@
 
 This is a portable Windows build. It does not require Python or installation.
 
-Double-click `CodexProviderTool.exe` to open the desktop page. The command line is also supported.
+Double-click `CodexProviderTool.exe` to open the desktop page without a console window. Command-line usage is provided by `CodexProviderTool-cli.exe`.
 
 The tool checks the local Codex provider configuration, probes OpenAI-compatible `/models` endpoints, and adds or switches relay providers with timestamped backups.
 
@@ -17,15 +17,15 @@ Download `dist/CodexProviderTool-windows-x64.zip`, extract it, and double-click 
 Open PowerShell in this directory:
 
 ```powershell
-.\CodexProviderTool.exe check
-.\CodexProviderTool.exe check --remote
-.\CodexProviderTool.exe models
+.\CodexProviderTool-cli.exe check
+.\CodexProviderTool-cli.exe check --remote
+.\CodexProviderTool-cli.exe models
 ```
 
 The default Codex home is `%CODEX_HOME%` or `%USERPROFILE%\.codex`. To inspect another profile:
 
 ```powershell
-.\CodexProviderTool.exe --codex-home "D:\\some\\codex-home" check
+.\CodexProviderTool-cli.exe --codex-home "D:\\some\\codex-home" check
 ```
 
 The bundled `CodexProviderTool.ps1` is an optional PowerShell wrapper:
@@ -37,7 +37,7 @@ The bundled `CodexProviderTool.ps1` is an optional PowerShell wrapper:
 ## Add a relay
 
 ```powershell
-.\CodexProviderTool.exe add relay_a `
+.\CodexProviderTool-cli.exe add relay_a `
   --label "Relay A" `
   --base-url "https://relay.example/v1" `
   --model "gpt-5.5" `

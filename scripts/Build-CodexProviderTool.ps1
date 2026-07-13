@@ -55,21 +55,39 @@ if (Test-Path -LiteralPath $zipPath) {
     --noconfirm `
     --clean `
     --onefile `
-    --console `
+    --windowed `
     --name CodexProviderTool `
     --distpath $stagingDir `
     --workpath $buildRoot `
     --specpath $buildRoot `
     (Join-Path $PSScriptRoot "codex_provider_gui.py")
 if ($LASTEXITCODE -ne 0) {
-    throw "PyInstaller failed with exit code $LASTEXITCODE"
+    throw "PyInstaller GUI build failed with exit code $LASTEXITCODE"
+}
+
+& $python -m PyInstaller `
+    --noconfirm `
+    --clean `
+    --onefile `
+    --console `
+    --name CodexProviderTool-cli `
+    --distpath $stagingDir `
+    --workpath $buildRoot `
+    --specpath $buildRoot `
+    (Join-Path $PSScriptRoot "codex_provider_tool.py")
+if ($LASTEXITCODE -ne 0) {
+    throw "PyInstaller CLI build failed with exit code $LASTEXITCODE"
 }
 
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot "CodexProviderTool-package.ps1") -Destination (Join-Path $stagingDir "CodexProviderTool.ps1")
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot "CODEX-PROVIDER-TOOL-PACKAGE-README.md") -Destination (Join-Path $stagingDir "README.md")
 
-$hash = Get-FileHash -LiteralPath (Join-Path $stagingDir "CodexProviderTool.exe") -Algorithm SHA256
-"$($hash.Hash)  CodexProviderTool.exe" | Set-Content -LiteralPath (Join-Path $stagingDir "SHA256SUMS.txt") -Encoding ASCII
+$hashLines = @()
+foreach ($filename in @("CodexProviderTool.exe", "CodexProviderTool-cli.exe")) {
+    $hash = Get-FileHash -LiteralPath (Join-Path $stagingDir $filename) -Algorithm SHA256
+    $hashLines += "$($hash.Hash)  $filename"
+}
+$hashLines | Set-Content -LiteralPath (Join-Path $stagingDir "SHA256SUMS.txt") -Encoding ASCII
 Copy-Item -LiteralPath (Join-Path $stagingDir "SHA256SUMS.txt") -Destination (Join-Path $distRoot "SHA256SUMS.txt") -Force
 
 if (-not $SkipZip) {

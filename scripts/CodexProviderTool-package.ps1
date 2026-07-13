@@ -4,10 +4,11 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$exe = Join-Path $PSScriptRoot "CodexProviderTool.exe"
+$exeName = if ($Arguments.Count -gt 0) { "CodexProviderTool-cli.exe" } else { "CodexProviderTool.exe" }
+$exe = Join-Path $PSScriptRoot $exeName
 
 if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
-    throw "CodexProviderTool.exe was not found beside this script."
+    throw "$exeName was not found beside this script."
 }
 
 & $exe @Arguments
