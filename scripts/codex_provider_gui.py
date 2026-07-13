@@ -227,7 +227,7 @@ class ProviderApp:
         probe_text, probe_bg, probe_fg = self._probe_badge(provider.provider_id)
         self._badge(details, probe_text, probe_bg, probe_fg).pack(anchor="e", pady=(8, 0))
 
-        actions = tk.Frame(card, bg=card.cget("bg"), padx=(16, 0))
+        actions = tk.Frame(card, bg=card.cget("bg"), padx=16)
         actions.grid(row=0, column=3, rowspan=2, sticky="e")
         if is_current:
             self._badge(actions, "当前", GREEN_DARK, GREEN).pack(fill="x", pady=(0, 7))
