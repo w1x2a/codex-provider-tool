@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import queue
 import sys
 import threading
 import tkinter as tk
@@ -13,6 +14,7 @@ from tkinter import filedialog, messagebox, ttk
 from typing import Any
 
 from codex_provider_tool import (
+    Provider,
     ToolError,
     atomic_write,
     backup_file,
@@ -331,12 +333,107 @@ class ProviderApp:
         activate = tk.BooleanVar(value=provider.current if provider else True)
         api_key = tk.StringVar()
         write_auth = tk.BooleanVar(value=False)
+        model_status = tk.StringVar(value="输入 Base URL 后会自动获取模型")
+        fetch_generation = {"value": 0}
+        fetch_job = {"id": None}
+        model_results: queue.Queue[tuple[str, int, Any, str | None]] = queue.Queue()
+
+        def finish_model_fetch(generation: int, result: Any, source: str) -> None:
+            if generation != fetch_generation["value"]:
+                return
+            try:
+                if not dialog.winfo_exists():
+                    return
+            except tk.TclError:
+                return
+            fetch_button.configure(state="normal")
+            if not result.ok:
+                model_status.set(f"获取失败：{result.message}")
+                return
+            models = sorted(set(result.models), key=str.casefold)
+            if not models:
+                model_status.set("接口可访问，但 /models 没有返回模型")
+                return
+            model_combo.configure(values=models)
+            current = model.get().strip()
+            if not current:
+                model.set(models[0])
+            elif current not in models:
+                model_combo.configure(values=[current, *models])
+            model_status.set(f"已获取 {len(models)} 个模型 · Key 来源：{source}")
+
+        def fail_model_fetch(generation: int, error: Exception) -> None:
+            if generation != fetch_generation["value"]:
+                return
+            try:
+                if not dialog.winfo_exists():
+                    return
+                fetch_button.configure(state="normal")
+                model_status.set(f"获取失败：{error}")
+            except tk.TclError:
+                return
+
+        def poll_model_results() -> None:
+            try:
+                while True:
+                    kind, generation, payload, source = model_results.get_nowait()
+                    if kind == "result":
+                        finish_model_fetch(generation, payload, source or "missing")
+                    else:
+                        fail_model_fetch(generation, payload)
+            except queue.Empty:
+                pass
+            try:
+                if dialog.winfo_exists():
+                    dialog.after(50, poll_model_results)
+            except tk.TclError:
+                return
+
+        def fetch_models(auto: bool = False) -> None:
+            url = base_url.get().strip().rstrip("/")
+            if not url.startswith(("http://", "https://")):
+                if not auto:
+                    model_status.set("请先填写有效的 Base URL")
+                return
+            try:
+                key, source = load_auth_key(self.home_path(), api_key.get().strip() or None)
+            except Exception as exc:
+                model_status.set(f"读取 API Key 失败：{exc}")
+                return
+            fetch_generation["value"] += 1
+            generation = fetch_generation["value"]
+            fetch_button.configure(state="disabled")
+            model_status.set("正在请求 /models ...")
+            temporary = Provider(
+                provider_id=provider_id.get().strip() or "preview",
+                name=label.get().strip() or "Provider",
+                base_url=url,
+                wire_api=wire_api.get() or "responses",
+                requires_openai_auth=requires_auth.get(),
+            )
+
+            def worker() -> None:
+                try:
+                    result = probe_provider(temporary, key, 10)
+                    model_results.put(("result", generation, result, source))
+                except Exception as exc:
+                    model_results.put(("error", generation, exc, None))
+
+            threading.Thread(target=worker, daemon=True).start()
+
+        def schedule_model_fetch(*_args: object) -> None:
+            if fetch_job["id"] is not None:
+                try:
+                    dialog.after_cancel(fetch_job["id"])
+                except tk.TclError:
+                    pass
+            if base_url.get().strip().startswith(("http://", "https://")):
+                fetch_job["id"] = dialog.after(800, lambda: fetch_models(True))
 
         fields = (
             ("Provider ID", provider_id, "relay_a"),
             ("显示名称", label, "我的中转站"),
             ("Base URL", base_url, "https://relay.example/v1"),
-            ("Model", model, "gpt-5.5"),
         )
         for row, (name, variable, hint) in enumerate(fields, start=2):
             tk.Label(body, text=name, bg=BG, fg="#c5cfde", font=("Microsoft YaHei UI", 10)).grid(row=row, column=0, padx=(0, 14), pady=7, sticky="w")
@@ -345,7 +442,18 @@ class ProviderApp:
             if not variable.get():
                 entry.insert(0, "")
 
-        row = 6
+        row = 5
+        tk.Label(body, text="Model", bg=BG, fg="#c5cfde", font=("Microsoft YaHei UI", 10)).grid(row=row, column=0, padx=(0, 14), pady=7, sticky="w")
+        model_row = tk.Frame(body, bg=BG)
+        model_row.grid(row=row, column=1, pady=7, sticky="ew")
+        model_row.columnconfigure(0, weight=1)
+        model_combo = ttk.Combobox(model_row, textvariable=model, values=(), state="normal", width=31, style="Dark.TCombobox")
+        model_combo.grid(row=0, column=0, sticky="ew")
+        fetch_button = self._button(model_row, "获取模型", lambda: fetch_models(False), BLUE_DARK, "#3b8cf0", width=9)
+        fetch_button.grid(row=0, column=1, padx=(8, 0))
+        row += 1
+        tk.Label(body, textvariable=model_status, bg=BG, fg="#79baff", font=("Microsoft YaHei UI", 9), anchor="w").grid(row=row, column=1, pady=(0, 5), sticky="ew")
+        row += 1
         tk.Label(body, text="Wire API", bg=BG, fg="#c5cfde", font=("Microsoft YaHei UI", 10)).grid(row=row, column=0, padx=(0, 14), pady=7, sticky="w")
         combo = ttk.Combobox(body, textvariable=wire_api, values=("responses", "chat"), state="readonly", width=41, style="Dark.TCombobox")
         combo.grid(row=row, column=1, pady=7, sticky="ew")
@@ -391,6 +499,11 @@ class ProviderApp:
                 messagebox.showerror("Codex Provider Tool", str(exc), parent=dialog)
 
         self._button(buttons, "保存供应商", save, PURPLE, "#8274ff", width=12).pack(side="right", padx=(0, 8))
+        dialog.after(50, poll_model_results)
+        base_url.trace_add("write", schedule_model_fetch)
+        api_key.trace_add("write", schedule_model_fetch)
+        if base_url.get().strip().startswith(("http://", "https://")):
+            dialog.after(350, lambda: fetch_models(True))
         dialog.update_idletasks()
         dialog.geometry(f"{max(dialog.winfo_reqwidth(), 560)}x{dialog.winfo_reqheight()}")
 

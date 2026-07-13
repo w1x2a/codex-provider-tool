@@ -6,6 +6,8 @@ Double-click `CodexProviderTool.exe` to open the desktop page. The command line 
 
 The tool checks the local Codex provider configuration, probes OpenAI-compatible `/models` endpoints, and adds or switches relay providers with timestamped backups.
 
+When adding or editing a provider, the model selector automatically requests `GET /models` after the Base URL or API key changes. The returned model IDs are loaded into an editable dropdown.
+
 ## Download
 
 Download `dist/CodexProviderTool-windows-x64.zip`, extract it, and double-click `CodexProviderTool.exe`.

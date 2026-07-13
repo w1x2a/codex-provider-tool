@@ -4,6 +4,8 @@ This is a portable Windows build. It does not require Python or installation.
 
 Double-click `CodexProviderTool.exe` to open the desktop page. The command line is also supported.
 
+The provider editor automatically loads model IDs from the relay's `/models` endpoint and fills an editable model dropdown.
+
 ## Run
 
 Open PowerShell in this directory:
