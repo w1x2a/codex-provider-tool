@@ -8,6 +8,8 @@ The tool checks the local Codex provider configuration, probes OpenAI-compatible
 
 When adding or editing a provider, the model selector automatically requests `GET /models` after the Base URL or API key changes. The returned model IDs are loaded into an editable dropdown.
 
+Base URLs are normalized automatically: a missing `/v1` is appended, while repeated endings such as `/v1/v1/` are collapsed to one `/v1`.
+
 ## Download
 
 Download `dist/CodexProviderTool-windows-x64.zip`, extract it, and double-click `CodexProviderTool.exe`.

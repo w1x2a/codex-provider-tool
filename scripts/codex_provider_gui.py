@@ -21,6 +21,7 @@ from codex_provider_tool import (
     find_provider,
     get_providers,
     load_auth_key,
+    normalize_base_url,
     probe_provider,
     read_config,
     resolve_codex_home,
@@ -336,6 +337,7 @@ class ProviderApp:
         model_status = tk.StringVar(value="输入 Base URL 后会自动获取模型")
         fetch_generation = {"value": 0}
         fetch_job = {"id": None}
+        normalizing_url = {"active": False}
         model_results: queue.Queue[tuple[str, int, Any, str | None]] = queue.Queue()
 
         def finish_model_fetch(generation: int, result: Any, source: str) -> None:
@@ -390,11 +392,16 @@ class ProviderApp:
                 return
 
         def fetch_models(auto: bool = False) -> None:
-            url = base_url.get().strip().rstrip("/")
-            if not url.startswith(("http://", "https://")):
+            try:
+                url = normalize_base_url(base_url.get())
+            except ToolError as exc:
                 if not auto:
-                    model_status.set("请先填写有效的 Base URL")
+                    model_status.set(str(exc))
                 return
+            if base_url.get().strip() != url:
+                normalizing_url["active"] = True
+                base_url.set(url)
+                normalizing_url["active"] = False
             try:
                 key, source = load_auth_key(self.home_path(), api_key.get().strip() or None)
             except Exception as exc:
@@ -422,6 +429,8 @@ class ProviderApp:
             threading.Thread(target=worker, daemon=True).start()
 
         def schedule_model_fetch(*_args: object) -> None:
+            if normalizing_url["active"]:
+                return
             if fetch_job["id"] is not None:
                 try:
                     dialog.after_cancel(fetch_job["id"])

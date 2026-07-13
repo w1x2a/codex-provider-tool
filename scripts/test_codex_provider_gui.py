@@ -18,6 +18,10 @@ from codex_provider_gui import ProviderApp  # noqa: E402
 
 class ModelHandler(BaseHTTPRequestHandler):
     def do_GET(self):  # noqa: N802
+        if self.path != "/v1/models":
+            self.send_response(404)
+            self.end_headers()
+            return
         payload = json.dumps({"data": [{"id": "relay-model-a"}, {"id": "relay-model-b"}]}).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
@@ -50,7 +54,7 @@ class ProviderGuiTests(unittest.TestCase):
                     'model = "relay-model-a"\n\n'
                     '[model_providers.relay]\n'
                     'name = "Relay"\n'
-                    f'base_url = "http://127.0.0.1:{server.server_port}/v1"\n'
+                    f'base_url = "http://127.0.0.1:{server.server_port}"\n'
                     'wire_api = "responses"\n'
                     'requires_openai_auth = false\n',
                     encoding="utf-8",

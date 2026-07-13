@@ -34,6 +34,10 @@ class ModelHandler(BaseHTTPRequestHandler):
 
 
 class CodexProviderToolTests(unittest.TestCase):
+    def test_explicit_codex_home_is_used_even_when_empty(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.assertEqual(MODULE.resolve_codex_home(directory), Path(directory))
+
     def test_upsert_and_switch_preserve_existing_tables(self):
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
@@ -52,7 +56,7 @@ class CodexProviderToolTests(unittest.TestCase):
                     "add",
                     "relay_a",
                     "--base-url",
-                    "https://relay.example/v1",
+                    "https://relay.example/v1/v1/",
                     "--model",
                     "relay-model",
                     "--label",
@@ -65,6 +69,7 @@ class CodexProviderToolTests(unittest.TestCase):
             self.assertIn('model_provider = "relay_a"', text)
             self.assertIn('model = "relay-model"', text)
             self.assertIn('[model_providers.relay_a]', text)
+            self.assertIn('base_url = "https://relay.example/v1"', text)
             self.assertIn('[features]', text)
 
             use_args = MODULE.build_parser().parse_args(["--codex-home", directory, "use", "OpenAI"])
@@ -92,7 +97,7 @@ class CodexProviderToolTests(unittest.TestCase):
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
-            provider = MODULE.Provider("relay", "Relay", f"http://127.0.0.1:{server.server_port}/v1", "responses", True)
+            provider = MODULE.Provider("relay", "Relay", f"http://127.0.0.1:{server.server_port}", "responses", True)
             result = MODULE.probe_provider(provider, "test-key", 2)
             self.assertTrue(result.ok)
             self.assertEqual(result.models, ["relay-model", "another-model"])
@@ -106,6 +111,18 @@ class CodexProviderToolTests(unittest.TestCase):
             MODULE.safe_url("https://relay.example/v1?key=secret#fragment"),
             "https://relay.example/v1",
         )
+
+    def test_normalize_base_url_adds_and_deduplicates_v1(self):
+        cases = {
+            "https://relay.example": "https://relay.example/v1",
+            "https://relay.example/": "https://relay.example/v1",
+            "https://relay.example/v1": "https://relay.example/v1",
+            "https://relay.example/v1/v1/": "https://relay.example/v1",
+            "https://relay.example/api/v1/v1?key=secret#x": "https://relay.example/api/v1",
+        }
+        for source, expected in cases.items():
+            with self.subTest(source=source):
+                self.assertEqual(MODULE.normalize_base_url(source), expected)
 
 
 if __name__ == "__main__":

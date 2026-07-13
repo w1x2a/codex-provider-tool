@@ -79,14 +79,12 @@ def mask_secret(value: str | None) -> str:
 
 
 def resolve_codex_home(explicit: str | None) -> Path:
-    candidates: list[Path] = []
     if explicit:
-        candidates.append(Path(explicit).expanduser())
+        return Path(explicit).expanduser()
     env_home = os.environ.get("CODEX_HOME")
     if env_home:
-        candidates.append(Path(env_home).expanduser())
-    candidates.append(Path.home() / ".codex")
-    candidates.append(Path.cwd() / ".codex")
+        return Path(env_home).expanduser()
+    candidates = [Path.home() / ".codex", Path.cwd() / ".codex"]
 
     seen: set[str] = set()
     for candidate in candidates:
@@ -180,8 +178,24 @@ def load_auth_key(home: Path, cli_key: str | None = None, env_name: str = "OPENA
     return None, "missing"
 
 
+def normalize_base_url(base_url: str) -> str:
+    from urllib.parse import urlsplit, urlunsplit
+
+    value = base_url.strip()
+    try:
+        parsed = urlsplit(value)
+    except ValueError as exc:
+        raise ToolError(f"invalid base URL: {exc}") from exc
+    if parsed.scheme.lower() not in ("http", "https") or not parsed.netloc:
+        raise ToolError("base URL must be a valid http:// or https:// URL")
+    path = parsed.path.rstrip("/")
+    path = re.sub(r"(?:/v1)+$", "", path, flags=re.IGNORECASE).rstrip("/")
+    normalized_path = f"{path}/v1" if path else "/v1"
+    return urlunsplit((parsed.scheme.lower(), parsed.netloc, normalized_path, "", ""))
+
+
 def endpoint_for_models(base_url: str) -> str:
-    return base_url.rstrip("/") + "/models"
+    return normalize_base_url(base_url) + "/models"
 
 
 def probe_provider(provider: Provider, api_key: str | None, timeout: float) -> ProbeResult:
@@ -313,15 +327,14 @@ def write_auth_key(home: Path, key: str) -> Path | None:
 def upsert_provider(home: Path, args: argparse.Namespace) -> tuple[Path, list[Path]]:
     if not PROVIDER_ID_RE.fullmatch(args.provider_id):
         raise ToolError("provider id may contain only letters, digits, '_' and '-'")
-    if not args.base_url.startswith(("http://", "https://")):
-        raise ToolError("base URL must start with http:// or https://")
+    normalized_base_url = normalize_base_url(args.base_url)
     if args.write_auth and not args.api_key:
         raise ToolError("--write-auth requires --api-key")
     config_path = home / "config.toml"
     text, _ = read_config(config_path)
     values = {
         "name": toml_string(args.label or args.provider_id),
-        "base_url": toml_string(args.base_url.rstrip("/")),
+        "base_url": toml_string(normalized_base_url),
         "wire_api": toml_string(args.wire_api),
         "requires_openai_auth": "true" if args.requires_openai_auth else "false",
     }

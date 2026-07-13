@@ -6,6 +6,8 @@ Double-click `CodexProviderTool.exe` to open the desktop page without a console 
 
 The provider editor automatically loads model IDs from the relay's `/models` endpoint and fills an editable model dropdown.
 
+The Base URL field automatically adds a missing `/v1` and removes duplicate endings such as `/v1/v1/`.
+
 ## Run
 
 Open PowerShell in this directory:
