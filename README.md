@@ -10,6 +10,8 @@ When adding or editing a provider, the model selector automatically requests `GE
 
 Base URLs are normalized automatically: a missing `/v1` is appended, while repeated endings such as `/v1/v1/` are collapsed to one `/v1`.
 
+The Add Provider dialog includes a one-click Anxiii preset for `https://anxiii.com/v1`. Anxiii users only enter their API key; the tool validates it, loads models, selects a suitable model, saves the key locally, and activates the provider.
+
 ## Download
 
 Download `dist/CodexProviderTool-windows-x64.zip`, extract it, and double-click `CodexProviderTool.exe`.

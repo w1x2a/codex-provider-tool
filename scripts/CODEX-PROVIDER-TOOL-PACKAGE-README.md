@@ -8,6 +8,8 @@ The provider editor automatically loads model IDs from the relay's `/models` end
 
 The Base URL field automatically adds a missing `/v1` and removes duplicate endings such as `/v1/v1/`.
 
+The Add Provider dialog includes a one-click `https://anxiii.com/v1` preset. Enter the API key and click the button to validate, select a model, save, and activate it automatically.
+
 ## Run
 
 Open PowerShell in this directory:
