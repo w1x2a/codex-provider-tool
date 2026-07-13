@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tkinter desktop UI for the Codex provider tool."""
+"""Dark provider-card desktop UI for the Codex provider tool."""
 
 from __future__ import annotations
 
@@ -29,167 +29,124 @@ from codex_provider_tool import (
 )
 
 
+BG = "#111827"
+SURFACE = "#192336"
+CARD = "#182235"
+CARD_CURRENT = "#223a58"
+BORDER = "#2b3a50"
+BORDER_CURRENT = "#3c8cf5"
+TEXT = "#f4f7fb"
+MUTED = "#8f9bb0"
+BLUE = "#55a8ff"
+BLUE_DARK = "#2a72d5"
+GREEN = "#50d6a1"
+GREEN_DARK = "#183e3d"
+PURPLE = "#7162f5"
+RED = "#f2788b"
+
+
 class ProviderApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.title("Codex Provider Tool")
-        self.root.minsize(900, 620)
-        self.root.geometry("1080x720")
+        self.root.configure(bg=BG)
+        self.root.geometry("1180x760")
+        self.root.minsize(940, 620)
 
         self.home_var = tk.StringVar(value=str(resolve_codex_home(None)))
-        self.model_var = tk.StringVar(value="-")
-        self.active_var = tk.StringVar(value="-")
-        self.config_var = tk.StringVar(value="-")
-        self.auth_var = tk.StringVar(value="-")
+        self.current_banner_var = tk.StringVar(value="正在读取 Codex 配置...")
         self.status_var = tk.StringVar(value="就绪")
-
-        self.provider_id_var = tk.StringVar()
-        self.provider_label_var = tk.StringVar()
-        self.base_url_var = tk.StringVar()
-        self.provider_model_var = tk.StringVar()
-        self.wire_api_var = tk.StringVar(value="responses")
-        self.requires_auth_var = tk.BooleanVar(value=True)
-        self.activate_var = tk.BooleanVar(value=True)
-        self.api_key_var = tk.StringVar()
-        self.write_auth_var = tk.BooleanVar(value=False)
-
         self.providers: dict[str, Any] = {}
-        self.tree: ttk.Treeview
-        self.output: tk.Text
-        self._build_style()
+        self.probe_state: dict[str, tuple[str, str]] = {}
+        self.card_canvas: tk.Canvas
+        self.card_inner: tk.Frame
+
         self._build_ui()
         self.refresh()
 
-    def _build_style(self) -> None:
-        style = ttk.Style(self.root)
-        try:
-            style.theme_use("vista")
-        except tk.TclError:
-            pass
-        style.configure("Title.TLabel", font=("Segoe UI", 18, "bold"))
-        style.configure("Muted.TLabel", foreground="#5f6b7a")
-        style.configure("Status.TLabel", foreground="#176b3a")
-
     def _build_ui(self) -> None:
+        style = ttk.Style(self.root)
+        style.configure("Dark.TCombobox", fieldbackground="#1c293d", background="#1c293d", foreground=TEXT)
+        style.map("Dark.TCombobox", fieldbackground=[("readonly", "#1c293d")], foreground=[("readonly", TEXT)])
+        self.root.rowconfigure(0, weight=1)
         self.root.columnconfigure(0, weight=1)
-        self.root.rowconfigure(1, weight=1)
+        page = tk.Frame(self.root, bg=BG, padx=34, pady=28)
+        page.grid(row=0, column=0, sticky="nsew")
+        page.rowconfigure(3, weight=1)
+        page.columnconfigure(0, weight=1)
 
-        header = ttk.Frame(self.root, padding=(18, 16, 18, 8))
+        header = tk.Frame(page, bg=BG)
         header.grid(row=0, column=0, sticky="ew")
-        header.columnconfigure(1, weight=1)
-        ttk.Label(header, text="Codex Provider Tool", style="Title.TLabel").grid(row=0, column=0, sticky="w")
-        ttk.Label(header, textvariable=self.status_var, style="Status.TLabel").grid(row=0, column=2, padx=(16, 0), sticky="e")
-        ttk.Label(header, text="Codex Home").grid(row=1, column=0, pady=(12, 0), sticky="w")
-        ttk.Entry(header, textvariable=self.home_var).grid(row=1, column=1, pady=(12, 0), padx=10, sticky="ew")
-        ttk.Button(header, text="选择目录", command=self.choose_home).grid(row=1, column=2, pady=(12, 0), sticky="e")
-        ttk.Button(header, text="刷新", command=self.refresh).grid(row=1, column=3, pady=(12, 0), padx=(8, 0), sticky="e")
-        ttk.Button(header, text="打开目录", command=self.open_home).grid(row=1, column=4, pady=(12, 0), padx=(8, 0), sticky="e")
+        header.columnconfigure(0, weight=1)
 
-        notebook = ttk.Notebook(self.root)
-        notebook.grid(row=1, column=0, padx=18, pady=(0, 18), sticky="nsew")
+        copy = tk.Frame(header, bg=BG)
+        copy.grid(row=0, column=0, sticky="w")
+        tk.Label(copy, text="PROVIDER", bg=BG, fg="#86c7ff", font=("Segoe UI", 11, "bold")).pack(anchor="w")
+        tk.Label(copy, text="供应商列表", bg=BG, fg=TEXT, font=("Microsoft YaHei UI", 27, "bold")).pack(anchor="w", pady=(4, 2))
+        tk.Label(
+            copy,
+            text="像 cc-switch 一样管理 Codex 第三方 API，当前使用的中转站会高亮显示。",
+            bg=BG,
+            fg=MUTED,
+            font=("Microsoft YaHei UI", 11),
+        ).pack(anchor="w")
 
-        check_tab = ttk.Frame(notebook, padding=14)
-        relay_tab = ttk.Frame(notebook, padding=14)
-        notebook.add(check_tab, text="检查与探测")
-        notebook.add(relay_tab, text="接入中转站")
-        self._build_check_tab(check_tab)
-        self._build_relay_tab(relay_tab)
+        actions = tk.Frame(header, bg=BG)
+        actions.grid(row=0, column=1, sticky="e", padx=(18, 0), pady=(4, 0))
+        self._button(actions, "刷新", self.refresh, BLUE_DARK, "#3b8cf0").pack(side="left", padx=(0, 10))
+        self._button(actions, "+  添加供应商", self.open_provider_dialog, PURPLE, "#8274ff", width=16).pack(side="left")
 
-    def _build_check_tab(self, tab: ttk.Frame) -> None:
-        tab.columnconfigure(0, weight=1)
-        tab.rowconfigure(2, weight=1)
-        tab.rowconfigure(4, weight=1)
+        banner = tk.Frame(page, bg="#15253a", highlightthickness=1, highlightbackground="#274d73")
+        banner.grid(row=1, column=0, sticky="ew", pady=(22, 14))
+        tk.Label(banner, textvariable=self.current_banner_var, bg="#15253a", fg="#c9e5ff", font=("Microsoft YaHei UI", 11), padx=16, pady=11).pack(anchor="w")
 
-        summary = ttk.LabelFrame(tab, text="当前状态", padding=12)
-        summary.grid(row=0, column=0, sticky="ew")
-        for column in range(4):
-            summary.columnconfigure(column, weight=1)
-        self._summary_item(summary, 0, "当前模型", self.model_var)
-        self._summary_item(summary, 1, "当前 Provider", self.active_var)
-        self._summary_item(summary, 2, "配置文件", self.config_var)
-        self._summary_item(summary, 3, "API Key", self.auth_var)
+        settings = tk.Frame(page, bg=BG)
+        settings.grid(row=2, column=0, sticky="ew", pady=(0, 7))
+        settings.columnconfigure(1, weight=1)
+        tk.Label(settings, text="Codex Home", bg=BG, fg=MUTED, font=("Segoe UI", 9)).grid(row=0, column=0, sticky="w")
+        tk.Label(settings, textvariable=self.home_var, bg=BG, fg="#718198", font=("Consolas", 9), anchor="w").grid(row=0, column=1, padx=10, sticky="ew")
+        self._button(settings, "选择目录", self.choose_home, "#263449", "#334661", width=10).grid(row=0, column=2, sticky="e")
+        tk.Label(settings, textvariable=self.status_var, bg=BG, fg=GREEN, font=("Segoe UI", 9)).grid(row=0, column=3, padx=(18, 0), sticky="e")
 
-        toolbar = ttk.Frame(tab)
-        toolbar.grid(row=1, column=0, pady=(12, 8), sticky="ew")
-        ttk.Button(toolbar, text="探测选中 Provider", command=self.probe_selected).pack(side="left")
-        ttk.Button(toolbar, text="切换到选中 Provider", command=self.activate_selected).pack(side="left", padx=8)
-        ttk.Label(toolbar, text="只执行 GET /models，不发送对话请求", style="Muted.TLabel").pack(side="left", padx=8)
-
-        provider_frame = ttk.LabelFrame(tab, text="Provider 列表", padding=8)
-        provider_frame.grid(row=2, column=0, sticky="nsew")
-        provider_frame.columnconfigure(0, weight=1)
-        provider_frame.rowconfigure(0, weight=1)
-        columns = ("id", "name", "category", "base_url", "wire_api", "current")
-        self.tree = ttk.Treeview(provider_frame, columns=columns, show="headings", selectmode="browse")
-        headings = {
-            "id": "ID",
-            "name": "名称",
-            "category": "类型",
-            "base_url": "Base URL",
-            "wire_api": "Wire API",
-            "current": "当前",
-        }
-        widths = {"id": 140, "name": 150, "category": 190, "base_url": 300, "wire_api": 90, "current": 70}
-        for column in columns:
-            self.tree.heading(column, text=headings[column])
-            self.tree.column(column, width=widths[column], anchor="w")
-        self.tree.grid(row=0, column=0, sticky="nsew")
-        scrollbar = ttk.Scrollbar(provider_frame, orient="vertical", command=self.tree.yview)
+        list_frame = tk.Frame(page, bg=BG)
+        list_frame.grid(row=3, column=0, sticky="nsew")
+        list_frame.rowconfigure(0, weight=1)
+        list_frame.columnconfigure(0, weight=1)
+        self.card_canvas = tk.Canvas(list_frame, bg=BG, highlightthickness=0, bd=0)
+        self.card_canvas.grid(row=0, column=0, sticky="nsew")
+        scrollbar = tk.Scrollbar(list_frame, orient="vertical", command=self.card_canvas.yview, bg=BG, troughcolor=BG, activebackground="#34445d", relief="flat", bd=0)
         scrollbar.grid(row=0, column=1, sticky="ns")
-        self.tree.configure(yscrollcommand=scrollbar.set)
-        self.tree.bind("<<TreeviewSelect>>", self.on_provider_selected)
+        self.card_canvas.configure(yscrollcommand=scrollbar.set)
+        self.card_inner = tk.Frame(self.card_canvas, bg=BG)
+        self.card_window = self.card_canvas.create_window((0, 0), window=self.card_inner, anchor="nw")
+        self.card_inner.bind("<Configure>", lambda _event: self.card_canvas.configure(scrollregion=self.card_canvas.bbox("all")))
+        self.card_canvas.bind("<Configure>", lambda event: self.card_canvas.itemconfigure(self.card_window, width=event.width))
+        self.card_canvas.bind("<MouseWheel>", self._scroll_cards)
 
-        ttk.Label(tab, text="操作日志").grid(row=3, column=0, pady=(12, 5), sticky="w")
-        output_frame = ttk.Frame(tab)
-        output_frame.grid(row=4, column=0, sticky="nsew")
-        output_frame.columnconfigure(0, weight=1)
-        output_frame.rowconfigure(0, weight=1)
-        self.output = tk.Text(output_frame, height=7, wrap="word", state="disabled", font=("Consolas", 10))
-        self.output.grid(row=0, column=0, sticky="nsew")
-        output_scroll = ttk.Scrollbar(output_frame, orient="vertical", command=self.output.yview)
-        output_scroll.grid(row=0, column=1, sticky="ns")
-        self.output.configure(yscrollcommand=output_scroll.set)
+    def _button(self, parent: tk.Widget, text: str, command: Any, color: str, hover: str, width: int | None = None) -> tk.Button:
+        button = tk.Button(
+            parent,
+            text=text,
+            command=command,
+            bg=color,
+            fg=TEXT,
+            activebackground=hover,
+            activeforeground=TEXT,
+            relief="flat",
+            bd=0,
+            cursor="hand2",
+            font=("Microsoft YaHei UI", 10, "bold"),
+            padx=14,
+            pady=8,
+        )
+        if width:
+            button.configure(width=width)
+        button.bind("<Enter>", lambda _event: button.configure(bg=hover))
+        button.bind("<Leave>", lambda _event: button.configure(bg=color))
+        return button
 
-    def _summary_item(self, parent: ttk.Frame, column: int, title: str, variable: tk.StringVar) -> None:
-        frame = ttk.Frame(parent)
-        frame.grid(row=0, column=column, padx=8, sticky="ew")
-        ttk.Label(frame, text=title, style="Muted.TLabel").pack(anchor="w")
-        ttk.Label(frame, textvariable=variable).pack(anchor="w", pady=(3, 0))
-
-    def _build_relay_tab(self, tab: ttk.Frame) -> None:
-        tab.columnconfigure(0, weight=1)
-        tab.columnconfigure(1, weight=1)
-
-        form = ttk.LabelFrame(tab, text="OpenAI-compatible Provider", padding=16)
-        form.grid(row=0, column=0, columnspan=2, sticky="ew")
-        form.columnconfigure(1, weight=1)
-        form.columnconfigure(3, weight=1)
-
-        self._form_entry(form, 0, 0, "Provider ID", self.provider_id_var, "例如 relay_a")
-        self._form_entry(form, 0, 2, "显示名称", self.provider_label_var, "例如 我的中转站")
-        self._form_entry(form, 1, 0, "Base URL", self.base_url_var, "例如 https://relay.example/v1")
-        self._form_entry(form, 1, 2, "Model", self.provider_model_var, "例如 gpt-5.5")
-
-        ttk.Label(form, text="Wire API").grid(row=2, column=0, padx=(0, 8), pady=10, sticky="w")
-        ttk.Combobox(form, textvariable=self.wire_api_var, values=("responses", "chat"), state="readonly", width=18).grid(row=2, column=1, pady=10, sticky="w")
-        ttk.Checkbutton(form, text="需要 OpenAI auth", variable=self.requires_auth_var).grid(row=2, column=2, pady=10, sticky="w")
-        ttk.Checkbutton(form, text="保存后立即启用", variable=self.activate_var).grid(row=2, column=3, pady=10, sticky="w")
-
-        ttk.Label(form, text="API Key").grid(row=3, column=0, padx=(0, 8), pady=10, sticky="w")
-        ttk.Entry(form, textvariable=self.api_key_var, show="*", width=42).grid(row=3, column=1, pady=10, sticky="ew")
-        ttk.Checkbutton(form, text="写入 auth.json", variable=self.write_auth_var).grid(row=3, column=2, pady=10, sticky="w")
-        ttk.Label(form, text="默认只用于本次保存，不会写入 config.toml", style="Muted.TLabel").grid(row=3, column=3, pady=10, sticky="w")
-
-        actions = ttk.Frame(tab)
-        actions.grid(row=1, column=0, columnspan=2, pady=(14, 0), sticky="w")
-        ttk.Button(actions, text="保存 Provider", command=self.save_provider).pack(side="left")
-        ttk.Button(actions, text="清空表单", command=self.clear_form).pack(side="left", padx=8)
-        ttk.Label(tab, text="写入或切换前会在 config.toml 同目录生成时间戳备份。", style="Muted.TLabel").grid(row=2, column=0, columnspan=2, pady=(18, 0), sticky="w")
-
-    def _form_entry(self, parent: ttk.Frame, row: int, label_column: int, label: str, variable: tk.StringVar, hint: str) -> None:
-        value_column = label_column + 1
-        ttk.Label(parent, text=label).grid(row=row, column=label_column, padx=(0, 8), pady=10, sticky="w")
-        ttk.Entry(parent, textvariable=variable).grid(row=row, column=value_column, padx=(0, 20), pady=10, sticky="ew")
+    def _scroll_cards(self, event: tk.Event) -> None:
+        self.card_canvas.yview_scroll(int(-event.delta / 120), "units")
 
     def home_path(self) -> Path:
         value = self.home_var.get().strip()
@@ -201,171 +158,248 @@ class ProviderApp:
             self.home_var.set(selected)
             self.refresh()
 
+    def refresh(self) -> None:
+        try:
+            home = self.home_path()
+            _, data = read_config(home / "config.toml")
+            providers = get_providers(data)
+            self.providers = {provider.provider_id: provider for provider in providers}
+            current_id = str(data.get("model_provider") or "")
+            current = self.providers.get(current_id)
+            key, source = load_auth_key(home)
+            if current:
+                base = safe_url(current.base_url) or "无 Base URL"
+                self.current_banner_var.set(f"当前使用：{current.name}   ·   {data.get('model') or '未设置模型'}   ·   {base}")
+            else:
+                self.current_banner_var.set("当前使用：尚未配置有效 Provider")
+            self.status_var.set(f"已加载 {len(providers)} 个 Provider" + (" · API Key 已配置" if key else " · API Key 未配置"))
+            self.render_cards()
+            self._log_status(f"已检查 {home} · key={source if key else 'missing'}")
+        except Exception as exc:
+            self.show_error(exc)
+
+    def render_cards(self) -> None:
+        for child in self.card_inner.winfo_children():
+            child.destroy()
+        if not self.providers:
+            empty = tk.Frame(self.card_inner, bg=SURFACE, padx=24, pady=30, highlightthickness=1, highlightbackground=BORDER)
+            empty.pack(fill="x", pady=8)
+            tk.Label(empty, text="还没有 Provider", bg=SURFACE, fg=TEXT, font=("Microsoft YaHei UI", 15, "bold")).pack(anchor="w")
+            tk.Label(empty, text="点击右上角“添加供应商”接入第三方中转站。", bg=SURFACE, fg=MUTED, font=("Microsoft YaHei UI", 10)).pack(anchor="w", pady=(8, 0))
+            return
+        for provider in self.providers.values():
+            self._render_card(provider)
+
+    def _render_card(self, provider: Any) -> None:
+        is_current = provider.current
+        card = tk.Frame(
+            self.card_inner,
+            bg=CARD_CURRENT if is_current else CARD,
+            padx=16,
+            pady=15,
+            highlightthickness=2 if is_current else 1,
+            highlightbackground=BORDER_CURRENT if is_current else BORDER,
+        )
+        card.pack(fill="x", pady=8)
+        card.columnconfigure(1, weight=1)
+        card.columnconfigure(2, weight=0)
+
+        icon = tk.Canvas(card, width=54, height=54, bg=card.cget("bg"), highlightthickness=0)
+        icon.grid(row=0, column=0, rowspan=2, padx=(0, 16), sticky="n")
+        icon.create_oval(4, 4, 50, 50, fill="#eef4ff" if is_current else "#e8edf5", outline="#8dbbff" if is_current else "#c8d2e0", width=2)
+        initial = (provider.name or provider.provider_id or "P")[0].upper()
+        icon.create_text(27, 27, text=initial, fill=BLUE_DARK if is_current else "#49566b", font=("Segoe UI", 19, "bold"))
+
+        info = tk.Frame(card, bg=card.cget("bg"))
+        info.grid(row=0, column=1, rowspan=2, sticky="nsew")
+        tk.Label(info, text=provider.name, bg=card.cget("bg"), fg=TEXT, font=("Microsoft YaHei UI", 16, "bold")).pack(anchor="w")
+        tk.Label(info, text=safe_url(provider.base_url) or "无 Base URL", bg=card.cget("bg"), fg=BLUE, font=("Consolas", 10), cursor="hand2").pack(anchor="w", pady=(5, 0))
+        meta = tk.Frame(info, bg=card.cget("bg"))
+        meta.pack(anchor="w", pady=(10, 0))
+        self._badge(meta, provider.category, "#2b405b", "#b9d8ff").pack(side="left", padx=(0, 7))
+        self._badge(meta, provider.wire_api, "#253a3b", "#9be6c7").pack(side="left")
+
+        details = tk.Frame(card, bg=card.cget("bg"), padx=16)
+        details.grid(row=0, column=2, rowspan=2, sticky="e")
+        source_text = "当前配置" if is_current else "TOML 配置"
+        tk.Label(details, text=source_text, bg=card.cget("bg"), fg=MUTED, font=("Microsoft YaHei UI", 9)).pack(anchor="e")
+        tk.Label(details, text=(self._current_model() if is_current else "切换后使用当前模型"), bg=card.cget("bg"), fg=TEXT, font=("Consolas", 10)).pack(anchor="e", pady=(5, 0))
+        probe_text, probe_bg, probe_fg = self._probe_badge(provider.provider_id)
+        self._badge(details, probe_text, probe_bg, probe_fg).pack(anchor="e", pady=(8, 0))
+
+        actions = tk.Frame(card, bg=card.cget("bg"), padx=(16, 0))
+        actions.grid(row=0, column=3, rowspan=2, sticky="e")
+        if is_current:
+            self._badge(actions, "当前", GREEN_DARK, GREEN).pack(fill="x", pady=(0, 7))
+        else:
+            self._button(actions, "切换", lambda p=provider: self.activate_provider(p.provider_id), BLUE_DARK, "#3b8cf0", width=7).pack(fill="x", pady=(0, 7))
+        self._button(actions, "检测", lambda p=provider: self.probe_provider_id(p.provider_id), "#263449", "#334661", width=7).pack(fill="x", pady=(0, 7))
+        self._button(actions, "编辑", lambda p=provider: self.open_provider_dialog(p), "#263449", "#334661", width=7).pack(fill="x")
+
+    def _badge(self, parent: tk.Widget, text: str, bg: str, fg: str) -> tk.Label:
+        return tk.Label(parent, text=text, bg=bg, fg=fg, font=("Microsoft YaHei UI", 9, "bold"), padx=9, pady=3)
+
+    def _probe_badge(self, provider_id: str) -> tuple[str, str, str]:
+        state, message = self.probe_state.get(provider_id, ("idle", "未检测"))
+        if state == "ok":
+            return message, GREEN_DARK, GREEN
+        if state == "running":
+            return "检测中...", "#30405b", "#b9d8ff"
+        if state == "error":
+            return "检测失败", "#4b2938", RED
+        return "未检测", "#293348", MUTED
+
+    def _current_model(self) -> str:
+        try:
+            _, data = read_config(self.home_path() / "config.toml")
+            return str(data.get("model") or "未设置模型")
+        except Exception:
+            return "未设置模型"
+
+    def _log_status(self, text: str) -> None:
+        self.status_var.set(text)
+
+    def show_error(self, error: Exception) -> None:
+        self.status_var.set("操作失败")
+        messagebox.showerror("Codex Provider Tool", str(error), parent=self.root)
+
+    def activate_provider(self, provider_id: str) -> None:
+        try:
+            config_path = self.home_path() / "config.toml"
+            text, data = read_config(config_path)
+            find_provider(data, provider_id)
+            updated = set_top_level_value(text, "model_provider", toml_string(provider_id))
+            backup = backup_file(config_path, "provider-tool")
+            atomic_write(config_path, updated)
+            self._log_status(f"已切换到 {provider_id} · 备份已生成")
+            self.refresh()
+            if backup:
+                self._log_status(f"已切换到 {provider_id} · 备份: {backup.name}")
+        except Exception as exc:
+            self.show_error(exc)
+
+    def probe_provider_id(self, provider_id: str) -> None:
+        try:
+            _, data = read_config(self.home_path() / "config.toml")
+            provider = find_provider(data, provider_id)
+            key, source = load_auth_key(self.home_path())
+        except Exception as exc:
+            self.show_error(exc)
+            return
+        self.probe_state[provider_id] = ("running", "检测中...")
+        self.render_cards()
+        self._log_status(f"正在检测 {provider.name}...")
+
+        def worker() -> None:
+            try:
+                result = probe_provider(provider, key, 10)
+                self.root.after(0, lambda result=result, source=source: self.probe_finished(provider_id, result, source))
+            except Exception as exc:
+                self.root.after(0, lambda error=exc: self.show_error(error))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def probe_finished(self, provider_id: str, result: Any, source: str) -> None:
+        if result.ok:
+            self.probe_state[provider_id] = ("ok", f"在线 · {len(result.models)} 个模型")
+            self._log_status(f"检测成功 · {provider_id} · {len(result.models)} 个模型 · {result.elapsed_ms} ms")
+        else:
+            self.probe_state[provider_id] = ("error", "检测失败")
+            self._log_status(f"检测失败 · {provider_id} · {result.message}")
+        self.render_cards()
+
+    def open_provider_dialog(self, provider: Any | None = None) -> None:
+        dialog = tk.Toplevel(self.root)
+        dialog.title("编辑供应商" if provider else "添加供应商")
+        dialog.configure(bg=BG)
+        dialog.resizable(False, False)
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        body = tk.Frame(dialog, bg=BG, padx=24, pady=22)
+        body.pack(fill="both", expand=True)
+        tk.Label(body, text=("编辑供应商" if provider else "添加供应商"), bg=BG, fg=TEXT, font=("Microsoft YaHei UI", 20, "bold")).grid(row=0, column=0, columnspan=2, sticky="w")
+        tk.Label(body, text="配置保存前会自动备份 config.toml。", bg=BG, fg=MUTED, font=("Microsoft YaHei UI", 9)).grid(row=1, column=0, columnspan=2, pady=(5, 15), sticky="w")
+        body.columnconfigure(1, weight=1)
+
+        provider_id = tk.StringVar(value=provider.provider_id if provider else "")
+        label = tk.StringVar(value=provider.name if provider else "")
+        base_url = tk.StringVar(value=provider.base_url if provider else "")
+        model = tk.StringVar(value=self._current_model() if provider else "")
+        wire_api = tk.StringVar(value=provider.wire_api if provider else "responses")
+        requires_auth = tk.BooleanVar(value=provider.requires_openai_auth if provider else True)
+        activate = tk.BooleanVar(value=provider.current if provider else True)
+        api_key = tk.StringVar()
+        write_auth = tk.BooleanVar(value=False)
+
+        fields = (
+            ("Provider ID", provider_id, "relay_a"),
+            ("显示名称", label, "我的中转站"),
+            ("Base URL", base_url, "https://relay.example/v1"),
+            ("Model", model, "gpt-5.5"),
+        )
+        for row, (name, variable, hint) in enumerate(fields, start=2):
+            tk.Label(body, text=name, bg=BG, fg="#c5cfde", font=("Microsoft YaHei UI", 10)).grid(row=row, column=0, padx=(0, 14), pady=7, sticky="w")
+            entry = tk.Entry(body, textvariable=variable, bg="#1c293d", fg=TEXT, insertbackground=TEXT, relief="flat", bd=0, font=("Segoe UI", 10), width=44)
+            entry.grid(row=row, column=1, pady=7, ipady=7, sticky="ew")
+            if not variable.get():
+                entry.insert(0, "")
+
+        row = 6
+        tk.Label(body, text="Wire API", bg=BG, fg="#c5cfde", font=("Microsoft YaHei UI", 10)).grid(row=row, column=0, padx=(0, 14), pady=7, sticky="w")
+        combo = ttk.Combobox(body, textvariable=wire_api, values=("responses", "chat"), state="readonly", width=41, style="Dark.TCombobox")
+        combo.grid(row=row, column=1, pady=7, sticky="ew")
+        row += 1
+        options = tk.Frame(body, bg=BG)
+        options.grid(row=row, column=1, pady=7, sticky="w")
+        tk.Checkbutton(options, text="需要 OpenAI auth", variable=requires_auth, bg=BG, fg="#c5cfde", activebackground=BG, activeforeground=TEXT, selectcolor="#1c293d").pack(side="left")
+        tk.Checkbutton(options, text="保存后立即启用", variable=activate, bg=BG, fg="#c5cfde", activebackground=BG, activeforeground=TEXT, selectcolor="#1c293d").pack(side="left", padx=(14, 0))
+        row += 1
+        tk.Label(body, text="API Key", bg=BG, fg="#c5cfde", font=("Microsoft YaHei UI", 10)).grid(row=row, column=0, padx=(0, 14), pady=7, sticky="w")
+        key_entry = tk.Entry(body, textvariable=api_key, show="*", bg="#1c293d", fg=TEXT, insertbackground=TEXT, relief="flat", bd=0, font=("Segoe UI", 10), width=44)
+        key_entry.grid(row=row, column=1, pady=7, ipady=7, sticky="ew")
+        row += 1
+        tk.Checkbutton(body, text="将 API Key 写入 auth.json", variable=write_auth, bg=BG, fg="#c5cfde", activebackground=BG, activeforeground=TEXT, selectcolor="#1c293d").grid(row=row, column=1, pady=(5, 14), sticky="w")
+
+        buttons = tk.Frame(body, bg=BG)
+        buttons.grid(row=row + 1, column=0, columnspan=2, sticky="e")
+        self._button(buttons, "取消", dialog.destroy, "#263449", "#334661", width=8).pack(side="right")
+
+        def save() -> None:
+            args = argparse.Namespace(
+                provider_id=provider_id.get().strip(),
+                label=label.get().strip() or provider_id.get().strip(),
+                base_url=base_url.get().strip(),
+                model=model.get().strip(),
+                wire_api=wire_api.get() or "responses",
+                requires_openai_auth=requires_auth.get(),
+                activate=activate.get(),
+                api_key=api_key.get().strip() or None,
+                write_auth=write_auth.get(),
+            )
+            if not args.provider_id or not args.base_url or not args.model:
+                messagebox.showwarning("Codex Provider Tool", "Provider ID、Base URL 和 Model 不能为空。", parent=dialog)
+                return
+            try:
+                config_path, backups = upsert_provider(self.home_path(), args)
+                dialog.destroy()
+                self.refresh()
+                self._log_status(f"已保存 {args.provider_id} · {config_path.name}")
+                if backups:
+                    self._log_status(f"已保存 {args.provider_id} · 已生成 {len(backups)} 个备份")
+            except Exception as exc:
+                messagebox.showerror("Codex Provider Tool", str(exc), parent=dialog)
+
+        self._button(buttons, "保存供应商", save, PURPLE, "#8274ff", width=12).pack(side="right", padx=(0, 8))
+        dialog.update_idletasks()
+        dialog.geometry(f"{max(dialog.winfo_reqwidth(), 560)}x{dialog.winfo_reqheight()}")
+
     def open_home(self) -> None:
         home = self.home_path()
         home.mkdir(parents=True, exist_ok=True)
         try:
             os.startfile(str(home))
         except OSError as exc:
-            self.show_error(exc)
-
-    def log(self, message: str) -> None:
-        self.output.configure(state="normal")
-        self.output.insert("end", message.rstrip() + "\n")
-        self.output.see("end")
-        self.output.configure(state="disabled")
-
-    def show_error(self, error: Exception) -> None:
-        self.status_var.set("操作失败")
-        self.log(f"错误: {error}")
-        messagebox.showerror("Codex Provider Tool", str(error), parent=self.root)
-
-    def refresh(self) -> None:
-        try:
-            home = self.home_path()
-            _, data = read_config(home / "config.toml")
-            key, source = load_auth_key(home)
-            self.model_var.set(str(data.get("model") or "未设置"))
-            self.active_var.set(str(data.get("model_provider") or "未设置"))
-            self.config_var.set("已找到" if (home / "config.toml").is_file() else "不存在")
-            self.auth_var.set(f"已配置 ({source})" if key else "未配置")
-            self.providers = {provider.provider_id: provider for provider in get_providers(data)}
-            for item in self.tree.get_children():
-                self.tree.delete(item)
-            for provider in self.providers.values():
-                self.tree.insert(
-                    "",
-                    "end",
-                    iid=provider.provider_id,
-                    values=(
-                        provider.provider_id,
-                        provider.name,
-                        provider.category,
-                        safe_url(provider.base_url),
-                        provider.wire_api,
-                        "是" if provider.current else "",
-                    ),
-                )
-            current_id = str(data.get("model_provider") or "")
-            if current_id in self.providers:
-                self.tree.selection_set(current_id)
-                self.tree.focus(current_id)
-                self.fill_form(self.providers[current_id])
-            self.status_var.set(f"已刷新: {len(self.providers)} 个 Provider")
-            self.log(f"已检查 {home}; API key: {'已配置' if key else '未配置'}")
-        except Exception as exc:
-            self.show_error(exc)
-
-    def on_provider_selected(self, _event: object) -> None:
-        selected = self.tree.selection()
-        if selected and selected[0] in self.providers:
-            self.fill_form(self.providers[selected[0]])
-
-    def fill_form(self, provider: Any) -> None:
-        self.provider_id_var.set(provider.provider_id)
-        self.provider_label_var.set(provider.name)
-        self.base_url_var.set(provider.base_url)
-        self.provider_model_var.set(self.model_var.get() if provider.current else "")
-        self.wire_api_var.set(provider.wire_api or "responses")
-        self.requires_auth_var.set(provider.requires_openai_auth)
-        self.activate_var.set(provider.current)
-
-    def clear_form(self) -> None:
-        self.provider_id_var.set("")
-        self.provider_label_var.set("")
-        self.base_url_var.set("")
-        self.provider_model_var.set("")
-        self.wire_api_var.set("responses")
-        self.requires_auth_var.set(True)
-        self.activate_var.set(True)
-        self.api_key_var.set("")
-        self.write_auth_var.set(False)
-
-    def selected_provider_id(self) -> str | None:
-        selected = self.tree.selection()
-        return selected[0] if selected else None
-
-    def activate_selected(self) -> None:
-        provider_id = self.selected_provider_id()
-        if not provider_id:
-            messagebox.showinfo("Codex Provider Tool", "请先选择一个 Provider。", parent=self.root)
-            return
-        try:
-            home = self.home_path()
-            config_path = home / "config.toml"
-            text, data = read_config(config_path)
-            find_provider(data, provider_id)
-            updated = set_top_level_value(text, "model_provider", toml_string(provider_id))
-            model = self.provider_model_var.get().strip()
-            if model:
-                updated = set_top_level_value(updated, "model", toml_string(model))
-            backup = backup_file(config_path, "provider-tool")
-            atomic_write(config_path, updated)
-            self.log(f"已切换到 {provider_id}; 备份: {backup or '无'}")
-            self.refresh()
-        except Exception as exc:
-            self.show_error(exc)
-
-    def probe_selected(self) -> None:
-        provider_id = self.selected_provider_id()
-        if not provider_id:
-            messagebox.showinfo("Codex Provider Tool", "请先选择一个 Provider。", parent=self.root)
-            return
-        try:
-            home = self.home_path()
-            _, data = read_config(home / "config.toml")
-            provider = find_provider(data, provider_id)
-            key, source = load_auth_key(home, self.api_key_var.get().strip() or None)
-        except Exception as exc:
-            self.show_error(exc)
-            return
-
-        self.status_var.set(f"正在探测 {provider_id}...")
-        self.log(f"开始探测 {provider_id} ({safe_url(provider.base_url)})")
-
-        def worker() -> None:
-            try:
-                result = probe_provider(provider, key, 10)
-                self.root.after(0, lambda: self.probe_finished(result, source))
-            except Exception as exc:
-                self.root.after(0, lambda error=exc: self.show_error(error))
-
-        threading.Thread(target=worker, daemon=True).start()
-
-    def probe_finished(self, result: Any, source: str) -> None:
-        self.status_var.set("探测完成")
-        state = "成功" if result.ok else "失败"
-        self.log(f"探测{state}: {result.message}; key={source}; {result.elapsed_ms} ms")
-        if result.models:
-            self.log("模型: " + ", ".join(result.models))
-
-    def save_provider(self) -> None:
-        provider_id = self.provider_id_var.get().strip()
-        label = self.provider_label_var.get().strip()
-        base_url = self.base_url_var.get().strip()
-        model = self.provider_model_var.get().strip()
-        if not provider_id or not base_url or not model:
-            messagebox.showwarning("Codex Provider Tool", "Provider ID、Base URL 和 Model 不能为空。", parent=self.root)
-            return
-        args = argparse.Namespace(
-            provider_id=provider_id,
-            label=label or provider_id,
-            base_url=base_url,
-            model=model,
-            wire_api=self.wire_api_var.get() or "responses",
-            requires_openai_auth=self.requires_auth_var.get(),
-            activate=self.activate_var.get(),
-            api_key=self.api_key_var.get().strip() or None,
-            write_auth=self.write_auth_var.get(),
-        )
-        try:
-            config_path, backups = upsert_provider(self.home_path(), args)
-            self.log(f"已保存 {provider_id}: {config_path}")
-            for backup in backups:
-                self.log(f"备份: {backup}")
-            self.status_var.set("Provider 已保存")
-            self.refresh()
-        except Exception as exc:
             self.show_error(exc)
 
 
@@ -389,7 +423,6 @@ def main(argv: list[str] | None = None) -> int:
         raw_args = raw_args[1:]
     if not raw_args:
         return run_gui()
-
     from codex_provider_tool import main as cli_main
 
     return cli_main(raw_args)
