@@ -19,9 +19,13 @@ from typing import Any
 
 
 PROVIDER_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
-SECTION_RE = re.compile(r"^\[[^\r\n]+\]\s*$", re.MULTILINE)
-TOP_LEVEL_KEY_RE = re.compile(r"^(?P<indent>\s*){key}\s*=.*$", re.MULTILINE)
-PROVIDER_KEY_RE = re.compile(r"^(?P<indent>\s*){key}\s*=.*$", re.MULTILINE)
+SECTION_RE = re.compile(r"^\[[^\r\n]+\][ \t]*$", re.MULTILINE)
+TOP_LEVEL_KEY_RE = re.compile(r"^(?P<indent>[ \t]*){key}[ \t]*=.*$", re.MULTILINE)
+PROVIDER_KEY_RE = re.compile(r"^(?P<indent>[ \t]*){key}[ \t]*=.*$", re.MULTILINE)
+COLLAPSED_PROVIDER_HEADER_RE = re.compile(
+    r"^(\[model_providers\.[A-Za-z0-9_-]+\])(?=[A-Za-z_][A-Za-z0-9_-]*[ \t]*=)",
+    re.MULTILINE,
+)
 
 
 class ToolError(RuntimeError):
@@ -125,6 +129,27 @@ def read_config(path: Path) -> tuple[str, dict[str, Any]]:
     except Exception as exc:  # tomllib raises TOMLDecodeError, which varies by Python version.
         raise ToolError(f"Invalid TOML in {path}: {exc}") from exc
     return text, data
+
+
+def repair_collapsed_provider_headers(path: Path) -> Path | None:
+    if not path.is_file():
+        return None
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ToolError(f"Cannot read config {path}: {exc}") from exc
+    repaired, count = COLLAPSED_PROVIDER_HEADER_RE.subn(r"\1\n", text)
+    if count == 0:
+        return None
+    try:
+        import tomllib
+
+        tomllib.loads(repaired)
+    except Exception:
+        return None
+    backup = backup_file(path, "provider-tool-auto-repair")
+    atomic_write(path, repaired)
+    return backup
 
 
 def get_providers(data: dict[str, Any]) -> list[Provider]:
@@ -266,7 +291,7 @@ def set_top_level_value(text: str, key: str, rendered: str) -> str:
 
 def update_provider_block(text: str, provider_id: str, values: dict[str, str]) -> str:
     header = f"[model_providers.{provider_id}]"
-    header_pattern = re.compile(rf"^\[model_providers\.{re.escape(provider_id)}\]\s*$", re.MULTILINE)
+    header_pattern = re.compile(rf"^\[model_providers\.{re.escape(provider_id)}\][ \t]*$", re.MULTILINE)
     match = header_pattern.search(text)
     if match:
         next_section = SECTION_RE.search(text, match.end())

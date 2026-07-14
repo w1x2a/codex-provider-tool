@@ -9,6 +9,7 @@ import queue
 import sys
 import threading
 import tkinter as tk
+import webbrowser
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from typing import Any
@@ -24,6 +25,7 @@ from codex_provider_tool import (
     normalize_base_url,
     probe_provider,
     read_config,
+    repair_collapsed_provider_headers,
     resolve_codex_home,
     safe_url,
     set_top_level_value,
@@ -49,6 +51,9 @@ RED = "#f2788b"
 DEFAULT_RELAY_ID = "anxiii"
 DEFAULT_RELAY_NAME = "Anxiii 中转站"
 DEFAULT_RELAY_BASE_URL = "https://anxiii.com/v1"
+CODEX_STORE_PRODUCT_ID = "9PLM9XGG6VKS"
+CODEX_STORE_URL = f"https://apps.microsoft.com/detail/{CODEX_STORE_PRODUCT_ID}"
+CODEX_FALLBACK_STORE_URL = "https://store.rg-adguard.net/"
 
 
 def choose_recommended_model(models: list[str], current_model: str) -> str:
@@ -110,6 +115,7 @@ class ProviderApp:
 
         actions = tk.Frame(header, bg=BG)
         actions.grid(row=0, column=1, sticky="e", padx=(18, 0), pady=(4, 0))
+        self._button(actions, "获取 Codex", self.open_codex_download_dialog, "#263449", "#334661", width=11).pack(side="left", padx=(0, 10))
         self._button(actions, "刷新", self.refresh, BLUE_DARK, "#3b8cf0").pack(side="left", padx=(0, 10))
         self._button(actions, "+  添加供应商", self.open_add_provider_choice, PURPLE, "#8274ff", width=16).pack(side="left")
 
@@ -175,10 +181,109 @@ class ProviderApp:
             self.home_var.set(selected)
             self.refresh()
 
+    def _copy_text(self, value: str) -> None:
+        self.root.clipboard_clear()
+        self.root.clipboard_append(value)
+        self.root.update_idletasks()
+
+    def open_codex_download_dialog(self) -> None:
+        dialog = tk.Toplevel(self.root)
+        dialog.title("获取 Codex for Windows")
+        dialog.configure(bg=BG)
+        dialog.resizable(False, False)
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        body = tk.Frame(dialog, bg=BG, padx=24, pady=22)
+        body.pack(fill="both", expand=True)
+        tk.Label(body, text="获取 Codex for Windows", bg=BG, fg=TEXT, font=("Microsoft YaHei UI", 20, "bold")).pack(anchor="w")
+        tk.Label(
+            body,
+            text="对应 OpenAI 官方 ChatGPT Windows 应用，包含 Codex 桌面功能。",
+            bg=BG,
+            fg=MUTED,
+            font=("Microsoft YaHei UI", 9),
+        ).pack(anchor="w", pady=(5, 16))
+
+        official = tk.Frame(body, bg="#182a40", padx=16, pady=15, highlightthickness=1, highlightbackground="#347ed2")
+        official.pack(fill="x")
+        official_title = tk.Frame(official, bg="#182a40")
+        official_title.pack(fill="x")
+        tk.Label(official_title, text="官方 Microsoft 下载页", bg="#182a40", fg=TEXT, font=("Microsoft YaHei UI", 13, "bold")).pack(side="left")
+        self._badge(official_title, "推荐", GREEN_DARK, GREEN).pack(side="right")
+        tk.Label(
+            official,
+            text="优先打开官方网页，选择“下载”或“在 Microsoft Store 中查看”。",
+            bg="#182a40",
+            fg="#b8c5d7",
+            font=("Microsoft YaHei UI", 9),
+        ).pack(anchor="w", pady=(7, 11))
+        self._button(
+            official,
+            "打开官方下载页",
+            lambda: webbrowser.open_new_tab(CODEX_STORE_URL),
+            BLUE_DARK,
+            "#3b8cf0",
+            width=14,
+        ).pack(anchor="e")
+
+        fallback = tk.Frame(body, bg="#182235", padx=16, pady=15, highlightthickness=1, highlightbackground=BORDER)
+        fallback.pack(fill="x", pady=(14, 0))
+        tk.Label(fallback, text="Microsoft Store 打不开？", bg="#182235", fg=TEXT, font=("Microsoft YaHei UI", 13, "bold")).pack(anchor="w")
+        tk.Label(
+            fallback,
+            text="备用页面：选择 ProductId，粘贴下面的产品 ID，通道选择 Retail，再点击 ✔ 获取安装包链接。",
+            bg="#182235",
+            fg="#b8c5d7",
+            font=("Microsoft YaHei UI", 9),
+            wraplength=620,
+            justify="left",
+        ).pack(anchor="w", pady=(7, 10))
+
+        product_row = tk.Frame(fallback, bg="#182235")
+        product_row.pack(fill="x")
+        tk.Label(product_row, text="产品 ID", bg="#182235", fg=MUTED, font=("Microsoft YaHei UI", 9)).pack(side="left")
+        tk.Label(product_row, text=CODEX_STORE_PRODUCT_ID, bg="#101a2a", fg=BLUE, font=("Consolas", 11, "bold"), padx=12, pady=7).pack(side="left", padx=(10, 8))
+        copy_status = tk.StringVar(value="")
+
+        def copy_product_id() -> None:
+            self._copy_text(CODEX_STORE_PRODUCT_ID)
+            copy_status.set("已复制")
+
+        def open_fallback() -> None:
+            copy_product_id()
+            webbrowser.open_new_tab(CODEX_FALLBACK_STORE_URL)
+            copy_status.set("产品 ID 已复制，已打开备用页面")
+
+        self._button(product_row, "复制", copy_product_id, "#263449", "#334661", width=6).pack(side="left")
+        tk.Label(product_row, textvariable=copy_status, bg="#182235", fg=GREEN, font=("Microsoft YaHei UI", 9)).pack(side="left", padx=(10, 0))
+        self._button(fallback, "复制 ID 并打开备用页", open_fallback, PURPLE, "#8274ff", width=19).pack(anchor="e", pady=(12, 0))
+        tk.Label(
+            fallback,
+            text="备用页面是第三方 Microsoft Store 链接生成器；下载后请确认安装包数字签名来自 Microsoft。",
+            bg="#182235",
+            fg="#d6aa69",
+            font=("Microsoft YaHei UI", 8),
+            wraplength=620,
+            justify="left",
+        ).pack(anchor="w", pady=(10, 0))
+
+        self._button(body, "关闭", dialog.destroy, "#263449", "#334661", width=8).pack(anchor="e", pady=(16, 0))
+        dialog.update_idletasks()
+        dialog.geometry(f"{max(dialog.winfo_reqwidth(), 700)}x{dialog.winfo_reqheight()}")
+
     def refresh(self) -> None:
         try:
             home = self.home_path()
-            _, data = read_config(home / "config.toml")
+            config_path = home / "config.toml"
+            repaired_backup: Path | None = None
+            try:
+                _, data = read_config(config_path)
+            except ToolError:
+                repaired_backup = repair_collapsed_provider_headers(config_path)
+                if not repaired_backup:
+                    raise
+                _, data = read_config(config_path)
             providers = get_providers(data)
             self.providers = {provider.provider_id: provider for provider in providers}
             current_id = str(data.get("model_provider") or "")
@@ -191,7 +296,10 @@ class ProviderApp:
                 self.current_banner_var.set("当前使用：尚未配置有效 Provider")
             self.status_var.set(f"已加载 {len(providers)} 个 Provider" + (" · API Key 已配置" if key else " · API Key 未配置"))
             self.render_cards()
-            self._log_status(f"已检查 {home} · key={source if key else 'missing'}")
+            if repaired_backup:
+                self._log_status(f"已自动修复旧版配置并备份到 {repaired_backup.name}")
+            else:
+                self._log_status(f"已检查 {home} · key={source if key else 'missing'}")
         except Exception as exc:
             self.show_error(exc)
 

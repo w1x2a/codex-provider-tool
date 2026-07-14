@@ -12,6 +12,10 @@ Base URLs are normalized automatically: a missing `/v1` is appended, while repea
 
 The Add Provider dialog includes a one-click Anxiii preset for `https://anxiii.com/v1`. Anxiii users only enter their API key; the tool validates it, loads models, selects a suitable model, saves the key locally, and activates the provider.
 
+The **Get Codex** dialog opens the official Microsoft download page for product ID `9PLM9XGG6VKS`. If Microsoft Store is unavailable, it can copy the product ID and open the RG Adguard Store link generator with step-by-step Chinese instructions.
+
+This build also fixes an older provider-update bug that could collapse a TOML section header and its first key onto one line. Known damage from that bug is backed up and repaired automatically when the GUI starts.
+
 ## Download
 
 Download `dist/CodexProviderTool-windows-x64.zip`, extract it, and double-click `CodexProviderTool.exe`.

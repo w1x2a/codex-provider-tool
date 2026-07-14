@@ -5,6 +5,7 @@ import threading
 import time
 import tkinter as tk
 import unittest
+from unittest import mock
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from tkinter import ttk
@@ -43,6 +44,32 @@ def descendants(widget):
 
 
 class ProviderGuiTests(unittest.TestCase):
+    def test_codex_download_dialog_copies_product_id_and_opens_fallback(self):
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            app = ProviderApp(root)
+            with mock.patch.object(GUI.webbrowser, "open_new_tab") as open_tab:
+                app.open_codex_download_dialog()
+                dialog = next(item for item in root.winfo_children() if isinstance(item, tk.Toplevel))
+                widgets = list(descendants(dialog))
+                fallback_button = next(
+                    item
+                    for item in widgets
+                    if isinstance(item, tk.Button) and item.cget("text") == "复制 ID 并打开备用页"
+                )
+                fallback_button.invoke()
+                root.update()
+                self.assertEqual(root.clipboard_get(), GUI.CODEX_STORE_PRODUCT_ID)
+                open_tab.assert_called_once_with(GUI.CODEX_FALLBACK_STORE_URL)
+        finally:
+            for child in list(root.winfo_children()):
+                try:
+                    child.destroy()
+                except tk.TclError:
+                    pass
+            root.destroy()
+
     def test_recommended_model_prefers_current_then_known_models(self):
         models = ["other", "gpt-5.6-luna", "gpt-5.5"]
         self.assertEqual(GUI.choose_recommended_model(models, "gpt-5.5"), "gpt-5.5")

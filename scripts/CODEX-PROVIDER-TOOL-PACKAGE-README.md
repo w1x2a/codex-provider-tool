@@ -10,6 +10,10 @@ The Base URL field automatically adds a missing `/v1` and removes duplicate endi
 
 The Add Provider dialog includes a one-click `https://anxiii.com/v1` preset. Enter the API key and click the button to validate, select a model, save, and activate it automatically.
 
+Use **获取 Codex** to open the official Microsoft download page for product ID `9PLM9XGG6VKS`. When Microsoft Store cannot open, the dialog copies the product ID and opens the RG Adguard Store link generator with Chinese instructions.
+
+The GUI automatically backs up and repairs the known malformed provider header produced by older builds.
+
 ## Run
 
 Open PowerShell in this directory:

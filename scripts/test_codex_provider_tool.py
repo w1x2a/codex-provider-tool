@@ -92,6 +92,58 @@ class CodexProviderToolTests(unittest.TestCase):
             self.assertEqual(MODULE.command_add(add_only_args), 0)
             self.assertIn('model_provider = "OpenAI"', config.read_text(encoding="utf-8"))
 
+    def test_updating_existing_provider_preserves_header_newline(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            config = home / "config.toml"
+            config.write_text(
+                'model_provider = "custom"\nmodel = "old-model"\n\n'
+                '[model_providers.custom]\n'
+                'name = "Old name"\n'
+                'base_url = "https://old.example/v1"\n'
+                'wire_api = "responses"\n'
+                'requires_openai_auth = true\n',
+                encoding="utf-8",
+            )
+            args = MODULE.build_parser().parse_args(
+                [
+                    "--codex-home",
+                    directory,
+                    "add",
+                    "custom",
+                    "--label",
+                    "Updated name",
+                    "--base-url",
+                    "https://relay.example",
+                    "--model",
+                    "new-model",
+                    "--activate",
+                ]
+            )
+            self.assertEqual(MODULE.command_add(args), 0)
+            text = config.read_text(encoding="utf-8")
+            self.assertIn('[model_providers.custom]\nname = "Updated name"', text)
+            self.assertNotIn('[model_providers.custom]name', text)
+            MODULE.read_config(config)
+
+    def test_repairs_collapsed_provider_header_from_older_build(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / "config.toml"
+            config.write_text(
+                'model_provider = "custom"\nmodel = "model-a"\n\n'
+                '[model_providers.custom]name = "OpenAI"\n'
+                'base_url = "https://relay.example/v1"\n'
+                'wire_api = "responses"\n'
+                'requires_openai_auth = true\n',
+                encoding="utf-8",
+            )
+            backup = MODULE.repair_collapsed_provider_headers(config)
+            self.assertIsNotNone(backup)
+            self.assertTrue(backup.is_file())
+            text, data = MODULE.read_config(config)
+            self.assertIn('[model_providers.custom]\nname = "OpenAI"', text)
+            self.assertEqual(data["model_providers"]["custom"]["name"], "OpenAI")
+
     def test_probe_reads_models_without_external_dependencies(self):
         server = ThreadingHTTPServer(("127.0.0.1", 0), ModelHandler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
