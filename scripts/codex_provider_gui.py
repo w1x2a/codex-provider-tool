@@ -28,8 +28,7 @@ from codex_provider_tool import (
     repair_collapsed_provider_headers,
     resolve_codex_home,
     safe_url,
-    set_top_level_value,
-    toml_string,
+    switch_provider_preserving_history,
     upsert_provider,
 )
 
@@ -392,14 +391,14 @@ class ProviderApp:
         try:
             config_path = self.home_path() / "config.toml"
             text, data = read_config(config_path)
-            find_provider(data, provider_id)
-            updated = set_top_level_value(text, "model_provider", toml_string(provider_id))
+            updated, active_id, history_preserved = switch_provider_preserving_history(text, data, provider_id)
             backup = backup_file(config_path, "provider-tool")
             atomic_write(config_path, updated)
             self._log_status(f"已切换到 {provider_id} · 备份已生成")
             self.refresh()
             if backup:
-                self._log_status(f"已切换到 {provider_id} · 备份: {backup.name}")
+                history_text = f" · 会话标识保持 {active_id}" if history_preserved and active_id != provider_id else ""
+                self._log_status(f"已切换到 {provider_id}{history_text} · 备份: {backup.name}")
         except Exception as exc:
             self.show_error(exc)
 

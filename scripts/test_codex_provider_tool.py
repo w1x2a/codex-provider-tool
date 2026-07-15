@@ -66,15 +66,21 @@ class CodexProviderToolTests(unittest.TestCase):
             )
             self.assertEqual(MODULE.command_add(args), 0)
             text = config.read_text(encoding="utf-8")
-            self.assertIn('model_provider = "relay_a"', text)
+            self.assertIn('model_provider = "OpenAI"', text)
             self.assertIn('model = "relay-model"', text)
             self.assertIn('[model_providers.relay_a]', text)
             self.assertIn('base_url = "https://relay.example/v1"', text)
             self.assertIn('[features]', text)
+            _, switched_data = MODULE.read_config(config)
+            self.assertEqual(switched_data["model_providers"]["OpenAI"]["name"], "Relay A")
+            self.assertEqual(switched_data["model_providers"]["relay_a"]["name"], "OpenAI")
 
-            use_args = MODULE.build_parser().parse_args(["--codex-home", directory, "use", "OpenAI"])
+            use_args = MODULE.build_parser().parse_args(["--codex-home", directory, "use", "relay_a"])
             self.assertEqual(MODULE.command_use(use_args), 0)
             self.assertIn('model_provider = "OpenAI"', config.read_text(encoding="utf-8"))
+            _, restored_data = MODULE.read_config(config)
+            self.assertEqual(restored_data["model_providers"]["OpenAI"]["name"], "OpenAI")
+            self.assertEqual(restored_data["model_providers"]["relay_a"]["name"], "Relay A")
             self.assertGreaterEqual(len(list(home.glob("config.toml.bak-provider-tool-*"))), 2)
 
             add_only_args = MODULE.build_parser().parse_args(
@@ -125,6 +131,66 @@ class CodexProviderToolTests(unittest.TestCase):
             self.assertIn('[model_providers.custom]\nname = "Updated name"', text)
             self.assertNotIn('[model_providers.custom]name', text)
             MODULE.read_config(config)
+
+    def test_switch_provider_keeps_session_identity_and_nested_tables(self):
+        text = (
+            'model_provider = "custom"\nmodel = "model-a"\n\n'
+            '[model_providers.custom]\nname = "Relay A"\nbase_url = "https://a.example/v1"\n\n'
+            '[model_providers.custom.auth]\nmode = "a"\n\n'
+            '[model_providers.relay_b]\nname = "Relay B"\nbase_url = "https://b.example/v1"\n\n'
+            '[model_providers.relay_b.auth]\nmode = "b"\n'
+        )
+        import tomllib
+
+        updated, active_id, preserved = MODULE.switch_provider_preserving_history(
+            text,
+            tomllib.loads(text),
+            "relay_b",
+        )
+        data = tomllib.loads(updated)
+        self.assertTrue(preserved)
+        self.assertEqual(active_id, "custom")
+        self.assertEqual(data["model_provider"], "custom")
+        self.assertEqual(data["model_providers"]["custom"]["name"], "Relay B")
+        self.assertEqual(data["model_providers"]["custom"]["auth"]["mode"], "b")
+        self.assertEqual(data["model_providers"]["relay_b"]["name"], "Relay A")
+        self.assertEqual(data["model_providers"]["relay_b"]["auth"]["mode"], "a")
+
+    def test_activating_new_provider_keeps_existing_session_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            config = home / "config.toml"
+            config.write_text(
+                'model_provider = "custom"\nmodel = "old-model"\n\n'
+                '[model_providers.custom]\n'
+                'name = "Old relay"\n'
+                'base_url = "https://old.example/v1"\n'
+                'wire_api = "responses"\n'
+                'requires_openai_auth = true\n',
+                encoding="utf-8",
+            )
+            args = MODULE.build_parser().parse_args(
+                [
+                    "--codex-home",
+                    directory,
+                    "add",
+                    "anxiii",
+                    "--label",
+                    "Anxiii",
+                    "--base-url",
+                    "https://anxiii.com/v1",
+                    "--model",
+                    "relay-model",
+                    "--activate",
+                ]
+            )
+            self.assertEqual(MODULE.command_add(args), 0)
+            _, data = MODULE.read_config(config)
+            self.assertEqual(data["model_provider"], "custom")
+            self.assertEqual(data["model"], "relay-model")
+            self.assertEqual(data["model_providers"]["custom"]["name"], "Anxiii")
+            self.assertEqual(data["model_providers"]["custom"]["base_url"], "https://anxiii.com/v1")
+            self.assertEqual(data["model_providers"]["anxiii"]["name"], "Old relay")
 
     def test_repairs_collapsed_provider_header_from_older_build(self):
         with tempfile.TemporaryDirectory() as directory:

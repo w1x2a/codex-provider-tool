@@ -314,6 +314,52 @@ def update_provider_block(text: str, provider_id: str, values: dict[str, str]) -
     return text + block
 
 
+def swap_provider_table_ids(text: str, first_id: str, second_id: str) -> str:
+    if first_id == second_id:
+        return text
+    first = re.escape(first_id)
+    second = re.escape(second_id)
+    pattern = re.compile(
+        rf"^(?P<prefix>\[model_providers\.)(?P<provider>{first}|{second})(?P<suffix>(?:\.[^\]\r\n]+)?)\](?P<trailing>[ \t]*)$",
+        re.MULTILINE,
+    )
+
+    def replace(match: re.Match[str]) -> str:
+        provider_id = second_id if match.group("provider") == first_id else first_id
+        return f"{match.group('prefix')}{provider_id}{match.group('suffix')}]{match.group('trailing')}"
+
+    return pattern.sub(replace, text)
+
+
+def switch_provider_preserving_history(
+    text: str,
+    data: dict[str, Any],
+    provider_id: str,
+    model: str | None = None,
+) -> tuple[str, str, bool]:
+    find_provider(data, provider_id)
+    current_id = str(data.get("model_provider") or "")
+    raw_providers = data.get("model_providers") or {}
+    can_keep_session_identity = (
+        bool(current_id)
+        and current_id != provider_id
+        and isinstance(raw_providers, dict)
+        and current_id in raw_providers
+        and provider_id in raw_providers
+    )
+    if can_keep_session_identity:
+        updated = swap_provider_table_ids(text, current_id, provider_id)
+        active_id = current_id
+        history_preserved = True
+    else:
+        updated = set_top_level_value(text, "model_provider", toml_string(provider_id))
+        active_id = provider_id
+        history_preserved = current_id in ("", provider_id)
+    if model:
+        updated = set_top_level_value(updated, "model", toml_string(model))
+    return updated, active_id, history_preserved
+
+
 def backup_file(path: Path, label: str) -> Path | None:
     if not path.is_file():
         return None
@@ -363,12 +409,15 @@ def upsert_provider(home: Path, args: argparse.Namespace) -> tuple[Path, list[Pa
         "wire_api": toml_string(args.wire_api),
         "requires_openai_auth": "true" if args.requires_openai_auth else "false",
     }
+    updated = update_provider_block(text, args.provider_id, values)
     if args.activate:
-        updated = set_top_level_value(text, "model_provider", toml_string(args.provider_id))
-        updated = set_top_level_value(updated, "model", toml_string(args.model))
-    else:
-        updated = text
-    updated = update_provider_block(updated, args.provider_id, values)
+        try:
+            import tomllib
+
+            updated_data = tomllib.loads(updated)
+        except Exception as exc:
+            raise ToolError(f"Cannot activate provider because the updated config is invalid: {exc}") from exc
+        updated, _, _ = switch_provider_preserving_history(updated, updated_data, args.provider_id, args.model)
     backups: list[Path] = []
     backup = backup_file(config_path, "provider-tool")
     if backup:
@@ -463,7 +512,14 @@ def command_add(args: argparse.Namespace) -> int:
         print(f"Backup: {backup}")
     if args.write_auth:
         print("Auth: OPENAI_API_KEY updated in auth.json")
-    print("Active provider: " + (args.provider_id if args.activate else "unchanged"))
+    if args.activate:
+        _, active_data = read_config(config_path)
+        active_id = str(active_data.get("model_provider") or args.provider_id)
+        print(f"Active provider profile: {args.provider_id}")
+        if active_id != args.provider_id:
+            print(f"Session identity: {active_id} (preserved for chat history)")
+    else:
+        print("Active provider: unchanged")
     return 0
 
 
@@ -471,13 +527,17 @@ def command_use(args: argparse.Namespace) -> int:
     home = resolve_codex_home(args.codex_home)
     config_path = home / "config.toml"
     text, data = read_config(config_path)
-    find_provider(data, args.provider_id)
-    updated = set_top_level_value(text, "model_provider", toml_string(args.provider_id))
-    if args.model:
-        updated = set_top_level_value(updated, "model", toml_string(args.model))
+    updated, active_id, history_preserved = switch_provider_preserving_history(
+        text,
+        data,
+        args.provider_id,
+        args.model,
+    )
     backup = backup_file(config_path, "provider-tool")
     atomic_write(config_path, updated)
     print(f"Active provider: {args.provider_id}")
+    if history_preserved and active_id != args.provider_id:
+        print(f"Session identity: {active_id} (preserved for chat history)")
     print(f"Config: {config_path}")
     if backup:
         print(f"Backup: {backup}")

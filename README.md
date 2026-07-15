@@ -16,6 +16,8 @@ The **Get Codex** dialog opens the official Microsoft download page for product 
 
 This build also fixes an older provider-update bug that could collapse a TOML section header and its first key onto one line. Known damage from that bug is backed up and repaired automatically when the GUI starts.
 
+Provider switching preserves the active Codex provider identity and swaps the complete provider profiles behind it. This keeps existing Codex conversations visible because their session metadata continues to use the same `model_provider` value.
+
 ## Download
 
 Download `dist/CodexProviderTool-windows-x64.zip`, extract it, and double-click `CodexProviderTool.exe`.

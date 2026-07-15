@@ -14,6 +14,8 @@ Use **获取 Codex** to open the official Microsoft download page for product ID
 
 The GUI automatically backs up and repairs the known malformed provider header produced by older builds.
 
+Switching providers keeps the active Codex session identity unchanged, so existing chat history remains visible while the relay URL and provider settings change.
+
 ## Run
 
 Open PowerShell in this directory:
