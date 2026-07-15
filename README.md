@@ -22,6 +22,8 @@ Provider switching preserves the active Codex provider identity and swaps the co
 
 Download `dist/CodexProviderTool-windows-x64.zip`, extract it, and double-click `CodexProviderTool.exe`.
 
+Linux x86_64 users can download `dist/CodexProviderTool-linux-x64.tar.gz`, extract it, run `chmod +x CodexProviderTool CodexProviderTool-cli`, and start the GUI with `./CodexProviderTool`.
+
 ## Run
 
 Open PowerShell in this directory:
@@ -71,6 +73,13 @@ python -m pip install pyinstaller
 ```
 
 The build creates `dist/CodexProviderTool-windows-x64.zip`.
+
+Build Linux x86_64 binaries from a Linux environment with PyInstaller:
+
+```bash
+python3 -m pip install pyinstaller
+./scripts/Build-CodexProviderTool-Linux.sh
+```
 
 ## Test
 

@@ -3,3 +3,4 @@ __pycache__/
 build/
 .venv/
 dist/CodexProviderTool-windows-x64/
+dist/CodexProviderTool-linux-x64/
