@@ -50,6 +50,7 @@ RED = "#f2788b"
 DEFAULT_RELAY_ID = "anxiii"
 DEFAULT_RELAY_NAME = "Anxiii 中转站"
 DEFAULT_RELAY_BASE_URL = "https://anxiii.com/v1"
+DEFAULT_RELAY_SITE_URL = "https://anxiii.com/"
 CODEX_STORE_PRODUCT_ID = "9PLM9XGG6VKS"
 CODEX_STORE_URL = f"https://apps.microsoft.com/detail/{CODEX_STORE_PRODUCT_ID}"
 CODEX_FALLBACK_STORE_URL = "https://store.rg-adguard.net/"
@@ -185,6 +186,21 @@ class ProviderApp:
         self.root.clipboard_append(value)
         self.root.update_idletasks()
 
+    def _center_dialog(self, dialog: tk.Toplevel, minimum_width: int = 0) -> None:
+        dialog.update_idletasks()
+        self.root.update_idletasks()
+        width = max(dialog.winfo_reqwidth(), minimum_width)
+        height = dialog.winfo_reqheight()
+        x = self.root.winfo_x() + max((self.root.winfo_width() - width) // 2, 0)
+        y = self.root.winfo_y() + max((self.root.winfo_height() - height) // 2, 0)
+        virtual_x = dialog.winfo_vrootx()
+        virtual_y = dialog.winfo_vrooty()
+        virtual_width = dialog.winfo_vrootwidth()
+        virtual_height = dialog.winfo_vrootheight()
+        x = max(virtual_x, min(x, virtual_x + virtual_width - width))
+        y = max(virtual_y, min(y, virtual_y + virtual_height - height))
+        dialog.geometry(f"{width}x{height}+{x}+{y}")
+
     def open_codex_download_dialog(self) -> None:
         dialog = tk.Toplevel(self.root)
         dialog.title("获取 Codex for Windows")
@@ -268,8 +284,7 @@ class ProviderApp:
         ).pack(anchor="w", pady=(10, 0))
 
         self._button(body, "关闭", dialog.destroy, "#263449", "#334661", width=8).pack(anchor="e", pady=(16, 0))
-        dialog.update_idletasks()
-        dialog.geometry(f"{max(dialog.winfo_reqwidth(), 700)}x{dialog.winfo_reqheight()}")
+        self._center_dialog(dialog, 700)
 
     def refresh(self) -> None:
         try:
@@ -449,7 +464,15 @@ class ProviderApp:
         recommended.pack(fill="x")
         title_row = tk.Frame(recommended, bg="#182a40")
         title_row.pack(fill="x")
-        tk.Label(title_row, text="推荐：Anxiii 中转站", bg="#182a40", fg=TEXT, font=("Microsoft YaHei UI", 14, "bold")).pack(side="left")
+        tk.Label(title_row, text="推荐：", bg="#182a40", fg=TEXT, font=("Microsoft YaHei UI", 14, "bold")).pack(side="left")
+        self._button(
+            title_row,
+            "Anxiii 中转站 · 打开官网",
+            lambda: webbrowser.open_new_tab(DEFAULT_RELAY_SITE_URL),
+            BLUE_DARK,
+            "#3b8cf0",
+            width=20,
+        ).pack(side="left", padx=(4, 0))
         self._badge(title_row, "只需填写 Key", GREEN_DARK, GREEN).pack(side="right")
         tk.Label(recommended, text=DEFAULT_RELAY_BASE_URL, bg="#182a40", fg=BLUE, font=("Consolas", 10)).pack(anchor="w", pady=(6, 12))
 
@@ -463,14 +486,17 @@ class ProviderApp:
         tk.Label(recommended, textvariable=status_var, bg="#182a40", fg="#79baff", font=("Microsoft YaHei UI", 9)).pack(anchor="w", pady=(9, 0))
 
         result_queue: queue.Queue[tuple[str, Any]] = queue.Queue()
+        poll_after_id: str | None = None
 
         def poll_result() -> None:
+            nonlocal poll_after_id
+            poll_after_id = None
             try:
                 kind, payload = result_queue.get_nowait()
             except queue.Empty:
                 try:
                     if dialog.winfo_exists():
-                        dialog.after(50, poll_result)
+                        poll_after_id = dialog.after(50, poll_result)
                 except tk.TclError:
                     pass
                 return
@@ -537,10 +563,20 @@ class ProviderApp:
             self.root.after(0, self.open_provider_dialog)
 
         self._button(custom, "打开完整表单", open_custom, "#263449", "#334661", width=13).pack(side="right")
-        dialog.after(50, poll_result)
+
+        def cancel_poll(event: tk.Event) -> None:
+            nonlocal poll_after_id
+            if event.widget is dialog and poll_after_id:
+                try:
+                    dialog.after_cancel(poll_after_id)
+                except tk.TclError:
+                    pass
+                poll_after_id = None
+
+        dialog.bind("<Destroy>", cancel_poll, add="+")
+        poll_after_id = dialog.after(50, poll_result)
         key_entry.focus_set()
-        dialog.update_idletasks()
-        dialog.geometry(f"{max(dialog.winfo_reqwidth(), 620)}x{dialog.winfo_reqheight()}")
+        self._center_dialog(dialog, 620)
 
     def open_provider_dialog(self, provider: Any | None = None) -> None:
         dialog = tk.Toplevel(self.root)
@@ -744,8 +780,7 @@ class ProviderApp:
         api_key.trace_add("write", schedule_model_fetch)
         if base_url.get().strip().startswith(("http://", "https://")):
             dialog.after(350, lambda: fetch_models(True))
-        dialog.update_idletasks()
-        dialog.geometry(f"{max(dialog.winfo_reqwidth(), 560)}x{dialog.winfo_reqheight()}")
+        self._center_dialog(dialog, 560)
 
     def open_home(self) -> None:
         home = self.home_path()

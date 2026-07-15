@@ -44,6 +44,51 @@ def descendants(widget):
 
 
 class ProviderGuiTests(unittest.TestCase):
+    def test_add_provider_dialog_is_centered_over_main_window(self):
+        root = tk.Tk()
+        try:
+            app = ProviderApp(root)
+            root.geometry("1000x700+120+80")
+            root.update()
+            app.open_add_provider_choice()
+            dialog = next(item for item in root.winfo_children() if isinstance(item, tk.Toplevel))
+            root.update()
+            root_center = (root.winfo_x() + root.winfo_width() / 2, root.winfo_y() + root.winfo_height() / 2)
+            dialog_center = (dialog.winfo_x() + dialog.winfo_width() / 2, dialog.winfo_y() + dialog.winfo_height() / 2)
+            self.assertLessEqual(abs(root_center[0] - dialog_center[0]), 12)
+            self.assertLessEqual(abs(root_center[1] - dialog_center[1]), 12)
+        finally:
+            for child in list(root.winfo_children()):
+                try:
+                    child.destroy()
+                except tk.TclError:
+                    pass
+            root.destroy()
+
+    def test_anxiii_recommended_button_opens_website(self):
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            app = ProviderApp(root)
+            with mock.patch.object(GUI.webbrowser, "open_new_tab") as open_tab:
+                app.open_add_provider_choice()
+                dialog = next(item for item in root.winfo_children() if isinstance(item, tk.Toplevel))
+                widgets = list(descendants(dialog))
+                website_button = next(
+                    item
+                    for item in widgets
+                    if isinstance(item, tk.Button) and item.cget("text") == "Anxiii 中转站 · 打开官网"
+                )
+                website_button.invoke()
+                open_tab.assert_called_once_with(GUI.DEFAULT_RELAY_SITE_URL)
+        finally:
+            for child in list(root.winfo_children()):
+                try:
+                    child.destroy()
+                except tk.TclError:
+                    pass
+            root.destroy()
+
     def test_codex_download_dialog_copies_product_id_and_opens_fallback(self):
         root = tk.Tk()
         root.withdraw()
