@@ -51,6 +51,7 @@ DEFAULT_RELAY_ID = "anxiii"
 DEFAULT_RELAY_NAME = "Anxiii 中转站"
 DEFAULT_RELAY_BASE_URL = "https://anxiii.com/v1"
 DEFAULT_RELAY_SITE_URL = "https://anxiii.com/"
+ANXIII_MONITOR_URL = "https://anxiii.com/monitor"
 CODEX_STORE_PRODUCT_ID = "9PLM9XGG6VKS"
 CODEX_STORE_URL = f"https://apps.microsoft.com/detail/{CODEX_STORE_PRODUCT_ID}"
 CODEX_FALLBACK_STORE_URL = "https://store.rg-adguard.net/"
@@ -116,6 +117,14 @@ class ProviderApp:
         actions = tk.Frame(header, bg=BG)
         actions.grid(row=0, column=1, sticky="e", padx=(18, 0), pady=(4, 0))
         self._button(actions, "获取 Codex", self.open_codex_download_dialog, "#263449", "#334661", width=11).pack(side="left", padx=(0, 10))
+        self._button(
+            actions,
+            "渠道监控",
+            lambda: webbrowser.open_new_tab(ANXIII_MONITOR_URL),
+            "#263449",
+            "#334661",
+            width=10,
+        ).pack(side="left", padx=(0, 10))
         self._button(actions, "刷新", self.refresh, BLUE_DARK, "#3b8cf0").pack(side="left", padx=(0, 10))
         self._button(actions, "+  添加供应商", self.open_add_provider_choice, PURPLE, "#8274ff", width=16).pack(side="left")
 

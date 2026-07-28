@@ -89,6 +89,27 @@ class ProviderGuiTests(unittest.TestCase):
                     pass
             root.destroy()
 
+    def test_channel_monitor_button_opens_anxiii_monitor_page(self):
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            app = ProviderApp(root)
+            with mock.patch.object(GUI.webbrowser, "open_new_tab") as open_tab:
+                monitor_button = next(
+                    item
+                    for item in descendants(root)
+                    if isinstance(item, tk.Button) and item.cget("text") == "渠道监控"
+                )
+                monitor_button.invoke()
+                open_tab.assert_called_once_with(GUI.ANXIII_MONITOR_URL)
+        finally:
+            for child in list(root.winfo_children()):
+                try:
+                    child.destroy()
+                except tk.TclError:
+                    pass
+            root.destroy()
+
     def test_codex_download_dialog_copies_product_id_and_opens_fallback(self):
         root = tk.Tk()
         root.withdraw()

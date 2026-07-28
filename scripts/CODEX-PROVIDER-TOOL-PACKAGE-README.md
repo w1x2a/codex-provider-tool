@@ -12,6 +12,8 @@ The Add Provider dialog includes a one-click `https://anxiii.com/v1` preset. Ent
 
 Click **Anxiii 中转站 · 打开官网** in the preset to open `https://anxiii.com/` directly.
 
+Click **渠道监控** to open `https://anxiii.com/monitor` directly.
+
 Use **获取 Codex** to open the official Microsoft download page for product ID `9PLM9XGG6VKS`. When Microsoft Store cannot open, the dialog copies the product ID and opens the RG Adguard Store link generator with Chinese instructions.
 
 The GUI automatically backs up and repairs the known malformed provider header produced by older builds.

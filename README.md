@@ -14,6 +14,8 @@ The Add Provider dialog includes a one-click Anxiii preset for `https://anxiii.c
 
 The Anxiii preset includes a website button that opens `https://anxiii.com/` directly; the API Base URL remains displayed separately below it.
 
+The **渠道监控** button opens `https://anxiii.com/monitor` directly in the default browser.
+
 Provider dialogs open centered over the main window and remain within the current virtual desktop bounds.
 
 The **Get Codex** dialog opens the official Microsoft download page for product ID `9PLM9XGG6VKS`. If Microsoft Store is unavailable, it can copy the product ID and open the RG Adguard Store link generator with step-by-step Chinese instructions.

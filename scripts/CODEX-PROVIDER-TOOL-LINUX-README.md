@@ -25,6 +25,8 @@ chmod +x CodexProviderTool CodexProviderTool-cli
 
 添加供应商窗口中的 **Anxiii 中转站 · 打开官网** 按钮会直接打开 `https://anxiii.com/`。
 
+点击 **渠道监控** 会直接打开 `https://anxiii.com/monitor`。
+
 ## 校验
 
 ```bash
