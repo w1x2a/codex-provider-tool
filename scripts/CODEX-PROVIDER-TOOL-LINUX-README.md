@@ -21,11 +21,7 @@ chmod +x CodexProviderTool CodexProviderTool-cli
 ./CodexProviderTool-cli models
 ```
 
-默认读取 `$CODEX_HOME` 或 `~/.codex`。切换供应商时会保持活动 `model_provider` 会话标识，因此已有聊天记录不会因为中转站切换而被隐藏。
-
-添加供应商窗口中的 **Anxiii 中转站 · 打开官网** 按钮会直接打开 `https://anxiii.com/`。
-
-点击 **渠道监控** 会直接打开 `https://anxiii.com/monitor`。
+默认读取 `$CODEX_HOME` 或 `~/.codex`。切换供应商时会保持活动 `model_provider` 会话标识，因此已有聊天记录不会因为供应商切换而被隐藏。
 
 ## 校验
 

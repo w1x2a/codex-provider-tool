@@ -47,11 +47,6 @@ GREEN = "#50d6a1"
 GREEN_DARK = "#183e3d"
 PURPLE = "#7162f5"
 RED = "#f2788b"
-DEFAULT_RELAY_ID = "anxiii"
-DEFAULT_RELAY_NAME = "Anxiii 中转站"
-DEFAULT_RELAY_BASE_URL = "https://anxiii.com/v1"
-DEFAULT_RELAY_SITE_URL = "https://anxiii.com/"
-ANXIII_MONITOR_URL = "https://anxiii.com/monitor"
 CODEX_STORE_PRODUCT_ID = "9PLM9XGG6VKS"
 CODEX_STORE_URL = f"https://apps.microsoft.com/detail/{CODEX_STORE_PRODUCT_ID}"
 CODEX_FALLBACK_STORE_URL = "https://store.rg-adguard.net/"
@@ -108,7 +103,7 @@ class ProviderApp:
         tk.Label(copy, text="供应商列表", bg=BG, fg=TEXT, font=("Microsoft YaHei UI", 27, "bold")).pack(anchor="w", pady=(4, 2))
         tk.Label(
             copy,
-            text="像 cc-switch 一样管理 Codex 第三方 API，当前使用的中转站会高亮显示。",
+            text="管理 Codex 自定义供应商，切换时保持活动会话标识不变。",
             bg=BG,
             fg=MUTED,
             font=("Microsoft YaHei UI", 11),
@@ -117,14 +112,6 @@ class ProviderApp:
         actions = tk.Frame(header, bg=BG)
         actions.grid(row=0, column=1, sticky="e", padx=(18, 0), pady=(4, 0))
         self._button(actions, "获取 Codex", self.open_codex_download_dialog, "#263449", "#334661", width=11).pack(side="left", padx=(0, 10))
-        self._button(
-            actions,
-            "渠道监控",
-            lambda: webbrowser.open_new_tab(ANXIII_MONITOR_URL),
-            "#263449",
-            "#334661",
-            width=10,
-        ).pack(side="left", padx=(0, 10))
         self._button(actions, "刷新", self.refresh, BLUE_DARK, "#3b8cf0").pack(side="left", padx=(0, 10))
         self._button(actions, "+  添加供应商", self.open_add_provider_choice, PURPLE, "#8274ff", width=16).pack(side="left")
 
@@ -333,7 +320,7 @@ class ProviderApp:
             empty = tk.Frame(self.card_inner, bg=SURFACE, padx=24, pady=30, highlightthickness=1, highlightbackground=BORDER)
             empty.pack(fill="x", pady=8)
             tk.Label(empty, text="还没有 Provider", bg=SURFACE, fg=TEXT, font=("Microsoft YaHei UI", 15, "bold")).pack(anchor="w")
-            tk.Label(empty, text="点击右上角“添加供应商”接入第三方中转站。", bg=SURFACE, fg=MUTED, font=("Microsoft YaHei UI", 10)).pack(anchor="w", pady=(8, 0))
+            tk.Label(empty, text="点击右上角“添加供应商”接入第三方供应商。", bg=SURFACE, fg=MUTED, font=("Microsoft YaHei UI", 10)).pack(anchor="w", pady=(8, 0))
             return
         for provider in self.providers.values():
             self._render_card(provider)
@@ -457,135 +444,7 @@ class ProviderApp:
         self.render_cards()
 
     def open_add_provider_choice(self) -> None:
-        dialog = tk.Toplevel(self.root)
-        dialog.title("添加供应商")
-        dialog.configure(bg=BG)
-        dialog.resizable(False, False)
-        dialog.transient(self.root)
-        dialog.grab_set()
-
-        body = tk.Frame(dialog, bg=BG, padx=24, pady=22)
-        body.pack(fill="both", expand=True)
-        tk.Label(body, text="添加供应商", bg=BG, fg=TEXT, font=("Microsoft YaHei UI", 20, "bold")).pack(anchor="w")
-        tk.Label(body, text="选择一键接入推荐中转，或打开完整表单添加其他供应商。", bg=BG, fg=MUTED, font=("Microsoft YaHei UI", 9)).pack(anchor="w", pady=(5, 16))
-
-        recommended = tk.Frame(body, bg="#182a40", padx=16, pady=15, highlightthickness=1, highlightbackground="#347ed2")
-        recommended.pack(fill="x")
-        title_row = tk.Frame(recommended, bg="#182a40")
-        title_row.pack(fill="x")
-        tk.Label(title_row, text="推荐：", bg="#182a40", fg=TEXT, font=("Microsoft YaHei UI", 14, "bold")).pack(side="left")
-        self._button(
-            title_row,
-            "Anxiii 中转站 · 打开官网",
-            lambda: webbrowser.open_new_tab(DEFAULT_RELAY_SITE_URL),
-            BLUE_DARK,
-            "#3b8cf0",
-            width=20,
-        ).pack(side="left", padx=(4, 0))
-        self._badge(title_row, "只需填写 Key", GREEN_DARK, GREEN).pack(side="right")
-        tk.Label(recommended, text=DEFAULT_RELAY_BASE_URL, bg="#182a40", fg=BLUE, font=("Consolas", 10)).pack(anchor="w", pady=(6, 12))
-
-        key_row = tk.Frame(recommended, bg="#182a40")
-        key_row.pack(fill="x")
-        tk.Label(key_row, text="API Key", bg="#182a40", fg="#c5cfde", font=("Microsoft YaHei UI", 10)).pack(side="left", padx=(0, 10))
-        key_var = tk.StringVar()
-        key_entry = tk.Entry(key_row, textvariable=key_var, show="*", bg="#1c293d", fg=TEXT, insertbackground=TEXT, relief="flat", bd=0, font=("Segoe UI", 10), width=36)
-        key_entry.pack(side="left", fill="x", expand=True, ipady=7)
-        status_var = tk.StringVar(value="Key 仅保存到本机 Codex auth.json")
-        tk.Label(recommended, textvariable=status_var, bg="#182a40", fg="#79baff", font=("Microsoft YaHei UI", 9)).pack(anchor="w", pady=(9, 0))
-
-        result_queue: queue.Queue[tuple[str, Any]] = queue.Queue()
-        poll_after_id: str | None = None
-
-        def poll_result() -> None:
-            nonlocal poll_after_id
-            poll_after_id = None
-            try:
-                kind, payload = result_queue.get_nowait()
-            except queue.Empty:
-                try:
-                    if dialog.winfo_exists():
-                        poll_after_id = dialog.after(50, poll_result)
-                except tk.TclError:
-                    pass
-                return
-            add_button.configure(state="normal")
-            if kind == "error":
-                status_var.set(f"验证失败：{payload}")
-                return
-            result = payload
-            if not result.ok or not result.models:
-                status_var.set(f"验证失败：{result.message}")
-                return
-            selected_model = choose_recommended_model(result.models, self._current_model())
-            args = argparse.Namespace(
-                provider_id=DEFAULT_RELAY_ID,
-                label=DEFAULT_RELAY_NAME,
-                base_url=DEFAULT_RELAY_BASE_URL,
-                model=selected_model,
-                wire_api="responses",
-                requires_openai_auth=True,
-                activate=True,
-                api_key=key_var.get().strip(),
-                write_auth=True,
-            )
-            try:
-                _, backups = upsert_provider(self.home_path(), args)
-                dialog.destroy()
-                self.refresh()
-                self._log_status(f"已启用 {DEFAULT_RELAY_NAME} · {selected_model} · 已生成 {len(backups)} 个备份")
-            except Exception as exc:
-                status_var.set(f"保存失败：{exc}")
-
-        def add_default_provider() -> None:
-            key = key_var.get().strip()
-            if not key:
-                status_var.set("请先填写 API Key")
-                key_entry.focus_set()
-                return
-            add_button.configure(state="disabled")
-            status_var.set("正在验证 Key 并获取模型...")
-            preview = Provider(DEFAULT_RELAY_ID, DEFAULT_RELAY_NAME, DEFAULT_RELAY_BASE_URL, "responses", True)
-
-            def worker() -> None:
-                try:
-                    result_queue.put(("result", probe_provider(preview, key, 12)))
-                except Exception as exc:
-                    result_queue.put(("error", exc))
-
-            threading.Thread(target=worker, daemon=True).start()
-
-        add_button = self._button(recommended, "一键添加并启用", add_default_provider, PURPLE, "#8274ff", width=16)
-        add_button.pack(anchor="e", pady=(12, 0))
-
-        separator = tk.Frame(body, bg=BORDER, height=1)
-        separator.pack(fill="x", pady=16)
-        custom = tk.Frame(body, bg=BG)
-        custom.pack(fill="x")
-        custom_copy = tk.Frame(custom, bg=BG)
-        custom_copy.pack(side="left", fill="x", expand=True)
-        tk.Label(custom_copy, text="添加其他供应商", bg=BG, fg=TEXT, font=("Microsoft YaHei UI", 12, "bold")).pack(anchor="w")
-        tk.Label(custom_copy, text="自定义名称、Base URL、模型和 Wire API。", bg=BG, fg=MUTED, font=("Microsoft YaHei UI", 9)).pack(anchor="w", pady=(4, 0))
-
-        def open_custom() -> None:
-            dialog.destroy()
-            self.root.after(0, self.open_provider_dialog)
-
-        self._button(custom, "打开完整表单", open_custom, "#263449", "#334661", width=13).pack(side="right")
-
-        def cancel_poll(event: tk.Event) -> None:
-            nonlocal poll_after_id
-            if event.widget is dialog and poll_after_id:
-                try:
-                    dialog.after_cancel(poll_after_id)
-                except tk.TclError:
-                    pass
-                poll_after_id = None
-
-        dialog.bind("<Destroy>", cancel_poll, add="+")
-        poll_after_id = dialog.after(50, poll_result)
-        key_entry.focus_set()
-        self._center_dialog(dialog, 620)
+        self.open_provider_dialog()
 
     def open_provider_dialog(self, provider: Any | None = None) -> None:
         dialog = tk.Toplevel(self.root)
@@ -717,8 +576,8 @@ class ProviderApp:
 
         fields = (
             ("Provider ID", provider_id, "relay_a"),
-            ("显示名称", label, "我的中转站"),
-            ("Base URL", base_url, "https://relay.example/v1"),
+            ("显示名称", label, "我的供应商"),
+            ("Base URL", base_url, "https://provider.example/v1"),
         )
         for row, (name, variable, hint) in enumerate(fields, start=2):
             tk.Label(body, text=name, bg=BG, fg="#c5cfde", font=("Microsoft YaHei UI", 10)).grid(row=row, column=0, padx=(0, 14), pady=7, sticky="w")

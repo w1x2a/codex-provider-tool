@@ -339,22 +339,32 @@ def switch_provider_preserving_history(
 ) -> tuple[str, str, bool]:
     find_provider(data, provider_id)
     current_id = str(data.get("model_provider") or "")
+    if not current_id:
+        updated = set_top_level_value(text, "model_provider", toml_string(provider_id))
+        if model:
+            updated = set_top_level_value(updated, "model", toml_string(model))
+        return updated, provider_id, False
+    if current_id == provider_id:
+        updated = set_top_level_value(text, "model_provider", toml_string(current_id))
+        if model:
+            updated = set_top_level_value(updated, "model", toml_string(model))
+        return updated, current_id, True
+
     raw_providers = data.get("model_providers") or {}
     can_keep_session_identity = (
-        bool(current_id)
-        and current_id != provider_id
-        and isinstance(raw_providers, dict)
+        isinstance(raw_providers, dict)
         and current_id in raw_providers
         and provider_id in raw_providers
     )
-    if can_keep_session_identity:
-        updated = swap_provider_table_ids(text, current_id, provider_id)
-        active_id = current_id
-        history_preserved = True
-    else:
-        updated = set_top_level_value(text, "model_provider", toml_string(provider_id))
-        active_id = provider_id
-        history_preserved = current_id in ("", provider_id)
+    if not can_keep_session_identity:
+        raise ToolError(
+            f"Cannot switch to {provider_id} without changing the active model_provider "
+            f"session identity ({current_id}); add a complete provider table for {current_id} first"
+        )
+
+    updated = swap_provider_table_ids(text, current_id, provider_id)
+    active_id = current_id
+    history_preserved = True
     if model:
         updated = set_top_level_value(updated, "model", toml_string(model))
     return updated, active_id, history_preserved

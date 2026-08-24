@@ -135,10 +135,16 @@ class CodexProviderToolTests(unittest.TestCase):
     def test_switch_provider_keeps_session_identity_and_nested_tables(self):
         text = (
             'model_provider = "custom"\nmodel = "model-a"\n\n'
-            '[model_providers.custom]\nname = "Relay A"\nbase_url = "https://a.example/v1"\n\n'
-            '[model_providers.custom.auth]\nmode = "a"\n\n'
-            '[model_providers.relay_b]\nname = "Relay B"\nbase_url = "https://b.example/v1"\n\n'
-            '[model_providers.relay_b.auth]\nmode = "b"\n'
+            '[model_providers.custom]\nname = "Provider A"\nbase_url = "https://a.example/v1"\n'
+            'wire_api = "responses"\nrequires_openai_auth = false\n'
+            'http_headers = { "X-Provider" = "a" }\n\n'
+            '[model_providers.custom.auth]\ncommand = "token-a"\nargs = ["--profile", "a"]\n'
+            'cwd = "C:/provider-a"\nrefresh_interval_ms = 1000\ntimeout_ms = 1200\n\n'
+            '[model_providers.relay_b]\nname = "Provider B"\nbase_url = "https://b.example/v1"\n'
+            'wire_api = "responses"\nrequires_openai_auth = true\n'
+            'http_headers = { "X-Provider" = "b" }\n\n'
+            '[model_providers.relay_b.auth]\ncommand = "token-b"\nargs = ["--profile", "b"]\n'
+            'cwd = "C:/provider-b"\nrefresh_interval_ms = 2000\ntimeout_ms = 2400\n'
         )
         import tomllib
 
@@ -151,10 +157,50 @@ class CodexProviderToolTests(unittest.TestCase):
         self.assertTrue(preserved)
         self.assertEqual(active_id, "custom")
         self.assertEqual(data["model_provider"], "custom")
-        self.assertEqual(data["model_providers"]["custom"]["name"], "Relay B")
-        self.assertEqual(data["model_providers"]["custom"]["auth"]["mode"], "b")
-        self.assertEqual(data["model_providers"]["relay_b"]["name"], "Relay A")
-        self.assertEqual(data["model_providers"]["relay_b"]["auth"]["mode"], "a")
+        self.assertEqual(data["model_providers"]["custom"]["name"], "Provider B")
+        self.assertEqual(data["model_providers"]["custom"]["http_headers"]["X-Provider"], "b")
+        self.assertEqual(data["model_providers"]["custom"]["auth"]["command"], "token-b")
+        self.assertEqual(data["model_providers"]["custom"]["auth"]["args"], ["--profile", "b"])
+        self.assertEqual(data["model_providers"]["custom"]["auth"]["timeout_ms"], 2400)
+        self.assertEqual(data["model_providers"]["relay_b"]["name"], "Provider A")
+        self.assertEqual(data["model_providers"]["relay_b"]["http_headers"]["X-Provider"], "a")
+        self.assertEqual(data["model_providers"]["relay_b"]["auth"]["command"], "token-a")
+        self.assertEqual(data["model_providers"]["relay_b"]["auth"]["args"], ["--profile", "a"])
+        self.assertEqual(data["model_providers"]["relay_b"]["auth"]["timeout_ms"], 1200)
+
+    def test_switch_rejects_missing_current_profile_without_changing_identity(self):
+        text = (
+            'model_provider = "openai"\nmodel = "gpt-5.5"\n\n'
+            '[model_providers.relay]\nname = "Relay"\nbase_url = "https://relay.example/v1"\n'
+        )
+        import tomllib
+
+        with self.assertRaisesRegex(MODULE.ToolError, "without changing the active model_provider"):
+            MODULE.switch_provider_preserving_history(text, tomllib.loads(text), "relay")
+
+    def test_provider_switch_does_not_touch_chat_data_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            config = home / "config.toml"
+            sqlite_file = home / "state.sqlite"
+            transcript = home / "sessions" / "one.jsonl"
+            transcript.parent.mkdir()
+            config.write_text(
+                'model_provider = "custom"\nmodel = "old-model"\n\n'
+                '[model_providers.custom]\nname = "Old"\nbase_url = "https://old.example/v1"\n\n'
+                '[model_providers.relay]\nname = "New"\nbase_url = "https://new.example/v1"\n',
+                encoding="utf-8",
+            )
+            sqlite_file.write_bytes(b"sqlite-fixture")
+            transcript.write_text('{"type":"message","text":"keep"}\n', encoding="utf-8")
+            before_sqlite = sqlite_file.read_bytes()
+            before_transcript = transcript.read_bytes()
+
+            args = MODULE.build_parser().parse_args(["--codex-home", directory, "use", "relay"])
+            self.assertEqual(MODULE.command_use(args), 0)
+
+            self.assertEqual(sqlite_file.read_bytes(), before_sqlite)
+            self.assertEqual(transcript.read_bytes(), before_transcript)
 
     def test_activating_new_provider_keeps_existing_session_identity(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -174,11 +220,11 @@ class CodexProviderToolTests(unittest.TestCase):
                     "--codex-home",
                     directory,
                     "add",
-                    "anxiii",
+                    "provider_b",
                     "--label",
-                    "Anxiii",
+                    "Provider B",
                     "--base-url",
-                    "https://anxiii.com/v1",
+                    "https://provider-b.example/v1",
                     "--model",
                     "relay-model",
                     "--activate",
@@ -188,9 +234,9 @@ class CodexProviderToolTests(unittest.TestCase):
             _, data = MODULE.read_config(config)
             self.assertEqual(data["model_provider"], "custom")
             self.assertEqual(data["model"], "relay-model")
-            self.assertEqual(data["model_providers"]["custom"]["name"], "Anxiii")
-            self.assertEqual(data["model_providers"]["custom"]["base_url"], "https://anxiii.com/v1")
-            self.assertEqual(data["model_providers"]["anxiii"]["name"], "Old relay")
+            self.assertEqual(data["model_providers"]["custom"]["name"], "Provider B")
+            self.assertEqual(data["model_providers"]["custom"]["base_url"], "https://provider-b.example/v1")
+            self.assertEqual(data["model_providers"]["provider_b"]["name"], "Old relay")
 
     def test_repairs_collapsed_provider_header_from_older_build(self):
         with tempfile.TemporaryDirectory() as directory:
