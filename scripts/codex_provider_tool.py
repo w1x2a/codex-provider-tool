@@ -8,6 +8,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 import urllib.error
@@ -26,6 +27,9 @@ COLLAPSED_PROVIDER_HEADER_RE = re.compile(
     r"^(\[model_providers\.[A-Za-z0-9_-]+\])(?=[A-Za-z_][A-Za-z0-9_-]*[ \t]*=)",
     re.MULTILINE,
 )
+OFFICIAL_PROVIDER_ID = "openai"
+OFFICIAL_PROVIDER_NAME = "OpenAI 官方（ChatGPT/Cookie 登录）"
+OFFICIAL_PROFILE_STORAGE_ID = "codex_official"
 
 
 class ToolError(RuntimeError):
@@ -40,6 +44,7 @@ class Provider:
     wire_api: str
     requires_openai_auth: bool
     current: bool = False
+    official: bool = False
 
     @property
     def category(self) -> str:
@@ -152,15 +157,47 @@ def repair_collapsed_provider_headers(path: Path) -> Path | None:
     return backup
 
 
+def is_managed_official_profile(raw: Any) -> bool:
+    if not isinstance(raw, dict):
+        return False
+    return (
+        str(raw.get("name") or "") == OFFICIAL_PROVIDER_NAME
+        and not str(raw.get("base_url") or "").strip()
+        and str(raw.get("wire_api") or "responses") == "responses"
+        and raw.get("requires_openai_auth") is True
+        and not any(raw.get(key) for key in ("auth", "env_key", "experimental_bearer_token"))
+    )
+
+
 def get_providers(data: dict[str, Any]) -> list[Provider]:
     current_id = str(data.get("model_provider") or "")
     raw_providers = data.get("model_providers") or {}
     if not isinstance(raw_providers, dict):
         raise ToolError("config.toml has an invalid model_providers table")
 
-    providers: list[Provider] = []
+    current_raw = raw_providers.get(current_id)
+    official_current = (
+        not current_id
+        or current_id == OFFICIAL_PROVIDER_ID
+        or is_managed_official_profile(current_raw)
+    )
+    providers: list[Provider] = [
+        Provider(
+            provider_id=OFFICIAL_PROVIDER_ID,
+            name=OFFICIAL_PROVIDER_NAME,
+            base_url="",
+            wire_api="responses",
+            requires_openai_auth=True,
+            current=official_current,
+            official=True,
+        )
+    ]
     for provider_id, raw in raw_providers.items():
-        if not isinstance(raw, dict):
+        if (
+            not isinstance(raw, dict)
+            or str(provider_id) == OFFICIAL_PROVIDER_ID
+            or is_managed_official_profile(raw)
+        ):
             continue
         providers.append(
             Provider(
@@ -177,7 +214,15 @@ def get_providers(data: dict[str, Any]) -> list[Provider]:
 
 def find_provider(data: dict[str, Any], provider_id: str | None) -> Provider:
     providers = get_providers(data)
-    wanted = provider_id or str(data.get("model_provider") or "")
+    current_id = str(data.get("model_provider") or "")
+    raw_providers = data.get("model_providers") or {}
+    current_raw = raw_providers.get(current_id) if isinstance(raw_providers, dict) else None
+    if provider_id:
+        wanted = provider_id
+    elif not current_id or current_id == OFFICIAL_PROVIDER_ID or is_managed_official_profile(current_raw):
+        wanted = OFFICIAL_PROVIDER_ID
+    else:
+        wanted = current_id
     for provider in providers:
         if provider.provider_id == wanted:
             return provider
@@ -289,6 +334,21 @@ def set_top_level_value(text: str, key: str, rendered: str) -> str:
     return insert + text
 
 
+def remove_top_level_value(text: str, key: str) -> str:
+    pattern = re.compile(TOP_LEVEL_KEY_RE.pattern.format(key=re.escape(key)), re.MULTILINE)
+    first_section = SECTION_RE.search(text)
+    top_level_text = text[: first_section.start()] if first_section else text
+    match = pattern.search(top_level_text)
+    if not match:
+        return text
+    end = match.end()
+    if text.startswith("\r\n", end):
+        end += 2
+    elif text.startswith("\n", end):
+        end += 1
+    return text[: match.start()] + text[end:]
+
+
 def update_provider_block(text: str, provider_id: str, values: dict[str, str]) -> str:
     header = f"[model_providers.{provider_id}]"
     header_pattern = re.compile(rf"^\[model_providers\.{re.escape(provider_id)}\][ \t]*$", re.MULTILINE)
@@ -331,6 +391,34 @@ def swap_provider_table_ids(text: str, first_id: str, second_id: str) -> str:
     return pattern.sub(replace, text)
 
 
+def find_managed_official_profile_id(raw_providers: dict[str, Any]) -> str | None:
+    for provider_id, raw in raw_providers.items():
+        if str(provider_id) != OFFICIAL_PROVIDER_ID and is_managed_official_profile(raw):
+            return str(provider_id)
+    return None
+
+
+def next_official_profile_storage_id(raw_providers: dict[str, Any]) -> str:
+    candidate = OFFICIAL_PROFILE_STORAGE_ID
+    suffix = 2
+    while candidate in raw_providers or candidate == OFFICIAL_PROVIDER_ID:
+        candidate = f"{OFFICIAL_PROFILE_STORAGE_ID}_{suffix}"
+        suffix += 1
+    return candidate
+
+
+def add_managed_official_profile(text: str, provider_id: str) -> str:
+    return update_provider_block(
+        text,
+        provider_id,
+        {
+            "name": toml_string(OFFICIAL_PROVIDER_NAME),
+            "wire_api": toml_string("responses"),
+            "requires_openai_auth": "true",
+        },
+    )
+
+
 def switch_provider_preserving_history(
     text: str,
     data: dict[str, Any],
@@ -339,6 +427,34 @@ def switch_provider_preserving_history(
 ) -> tuple[str, str, bool]:
     find_provider(data, provider_id)
     current_id = str(data.get("model_provider") or "")
+    if provider_id == OFFICIAL_PROVIDER_ID:
+        if not current_id or current_id == OFFICIAL_PROVIDER_ID:
+            updated = remove_top_level_value(text, "openai_base_url")
+            updated = set_top_level_value(updated, "model_provider", toml_string(OFFICIAL_PROVIDER_ID))
+            if model:
+                updated = set_top_level_value(updated, "model", toml_string(model))
+            return updated, OFFICIAL_PROVIDER_ID, current_id == OFFICIAL_PROVIDER_ID
+
+        raw_providers = data.get("model_providers") or {}
+        if not isinstance(raw_providers, dict) or current_id not in raw_providers:
+            raise ToolError(
+                f"Cannot switch to {OFFICIAL_PROVIDER_NAME} without changing the active model_provider "
+                f"session identity ({current_id}); add a complete provider table for {current_id} first"
+            )
+        if is_managed_official_profile(raw_providers[current_id]):
+            updated = text
+        else:
+            official_profile_id = find_managed_official_profile_id(raw_providers)
+            if not official_profile_id:
+                official_profile_id = next_official_profile_storage_id(raw_providers)
+                updated = add_managed_official_profile(text, official_profile_id)
+            else:
+                updated = text
+            updated = swap_provider_table_ids(updated, current_id, official_profile_id)
+        if model:
+            updated = set_top_level_value(updated, "model", toml_string(model))
+        return updated, current_id, True
+
     if not current_id:
         updated = set_top_level_value(text, "model_provider", toml_string(provider_id))
         if model:
@@ -368,6 +484,37 @@ def switch_provider_preserving_history(
     if model:
         updated = set_top_level_value(updated, "model", toml_string(model))
     return updated, active_id, history_preserved
+
+
+def launch_codex_login(home: Path, new_console: bool = True) -> subprocess.Popen[Any]:
+    if not shutil.which("codex"):
+        raise ToolError("Codex CLI was not found in PATH; install Codex before starting official login")
+    env = os.environ.copy()
+    env["CODEX_HOME"] = str(home)
+    if os.name == "nt":
+        pwsh = shutil.which("pwsh")
+        if not pwsh:
+            raise ToolError("PowerShell 7 (pwsh) was not found; it is required to start Codex login")
+        script = (
+            "$ErrorActionPreference = 'Stop'\n"
+            "$PSNativeCommandUseErrorActionPreference = $true\n"
+            "codex login"
+        )
+        command = [pwsh, "-NoProfile"]
+        if new_console:
+            command.append("-NoExit")
+        command.extend(["-Command", script])
+        creationflags = subprocess.CREATE_NEW_CONSOLE if new_console else 0
+        try:
+            return subprocess.Popen(command, env=env, creationflags=creationflags)
+        except OSError as exc:
+            raise ToolError(f"Cannot start Codex official login: {exc}") from exc
+
+    codex = shutil.which("codex")
+    try:
+        return subprocess.Popen([codex, "login"], env=env)
+    except OSError as exc:
+        raise ToolError(f"Cannot start Codex official login: {exc}") from exc
 
 
 def backup_file(path: Path, label: str) -> Path | None:
@@ -408,6 +555,8 @@ def write_auth_key(home: Path, key: str) -> Path | None:
 def upsert_provider(home: Path, args: argparse.Namespace) -> tuple[Path, list[Path]]:
     if not PROVIDER_ID_RE.fullmatch(args.provider_id):
         raise ToolError("provider id may contain only letters, digits, '_' and '-'")
+    if args.provider_id == OFFICIAL_PROVIDER_ID:
+        raise ToolError("provider id 'openai' is reserved by Codex; use 'use openai' for official login")
     normalized_base_url = normalize_base_url(args.base_url)
     if args.write_auth and not args.api_key:
         raise ToolError("--write-auth requires --api-key")
@@ -554,6 +703,12 @@ def command_use(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_login(args: argparse.Namespace) -> int:
+    home = resolve_codex_home(args.codex_home)
+    process = launch_codex_login(home, new_console=False)
+    return int(process.wait())
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Inspect and manage Codex model providers")
     parser.add_argument("--codex-home", help="Codex home directory; defaults to CODEX_HOME or ~/.codex")
@@ -587,10 +742,13 @@ def build_parser() -> argparse.ArgumentParser:
     add.add_argument("--write-auth", action="store_true", help="write API key to auth.json; otherwise no key is persisted")
     add.set_defaults(func=command_add)
 
-    use = subparsers.add_parser("use", help="switch the active provider")
+    use = subparsers.add_parser("use", help="switch the active provider; use 'openai' for official Cookie/ChatGPT login")
     use.add_argument("provider_id")
     use.add_argument("--model", help="override the top-level model")
     use.set_defaults(func=command_use)
+
+    login = subparsers.add_parser("login", help="start the official Codex ChatGPT/Cookie login flow")
+    login.set_defaults(func=command_login)
 
     return parser
 

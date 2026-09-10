@@ -15,6 +15,8 @@ from tkinter import filedialog, messagebox, ttk
 from typing import Any
 
 from codex_provider_tool import (
+    OFFICIAL_PROVIDER_ID,
+    OFFICIAL_PROVIDER_NAME,
     Provider,
     ToolError,
     atomic_write,
@@ -22,6 +24,7 @@ from codex_provider_tool import (
     find_provider,
     get_providers,
     load_auth_key,
+    launch_codex_login,
     normalize_base_url,
     probe_provider,
     read_config,
@@ -296,32 +299,25 @@ class ProviderApp:
                 _, data = read_config(config_path)
             providers = get_providers(data)
             self.providers = {provider.provider_id: provider for provider in providers}
-            current_id = str(data.get("model_provider") or "")
-            current = self.providers.get(current_id)
-            key, source = load_auth_key(home)
+            current = next((provider for provider in providers if provider.current), None)
             if current:
-                base = safe_url(current.base_url) or "无 Base URL"
+                base = safe_url(current.base_url) or ("Codex 内置官方通道" if current.official else "无 Base URL")
                 self.current_banner_var.set(f"当前使用：{current.name}   ·   {data.get('model') or '未设置模型'}   ·   {base}")
             else:
                 self.current_banner_var.set("当前使用：尚未配置有效 Provider")
-            self.status_var.set(f"已加载 {len(providers)} 个 Provider" + (" · API Key 已配置" if key else " · API Key 未配置"))
+            auth_cache = "登录缓存文件存在" if (home / "auth.json").is_file() else "登录状态由 Codex 管理"
+            self.status_var.set(f"已加载 {len(providers)} 个 Provider · {auth_cache}")
             self.render_cards()
             if repaired_backup:
                 self._log_status(f"已自动修复旧版配置并备份到 {repaired_backup.name}")
             else:
-                self._log_status(f"已检查 {home} · key={source if key else 'missing'}")
+                self._log_status(f"已检查 {home} · Cookie/登录凭据由 Codex 管理")
         except Exception as exc:
             self.show_error(exc)
 
     def render_cards(self) -> None:
         for child in self.card_inner.winfo_children():
             child.destroy()
-        if not self.providers:
-            empty = tk.Frame(self.card_inner, bg=SURFACE, padx=24, pady=30, highlightthickness=1, highlightbackground=BORDER)
-            empty.pack(fill="x", pady=8)
-            tk.Label(empty, text="还没有 Provider", bg=SURFACE, fg=TEXT, font=("Microsoft YaHei UI", 15, "bold")).pack(anchor="w")
-            tk.Label(empty, text="点击右上角“添加供应商”接入第三方供应商。", bg=SURFACE, fg=MUTED, font=("Microsoft YaHei UI", 10)).pack(anchor="w", pady=(8, 0))
-            return
         for provider in self.providers.values():
             self._render_card(provider)
 
@@ -348,19 +344,24 @@ class ProviderApp:
         info = tk.Frame(card, bg=card.cget("bg"))
         info.grid(row=0, column=1, rowspan=2, sticky="nsew")
         tk.Label(info, text=provider.name, bg=card.cget("bg"), fg=TEXT, font=("Microsoft YaHei UI", 16, "bold")).pack(anchor="w")
-        tk.Label(info, text=safe_url(provider.base_url) or "无 Base URL", bg=card.cget("bg"), fg=BLUE, font=("Consolas", 10), cursor="hand2").pack(anchor="w", pady=(5, 0))
+        endpoint_text = safe_url(provider.base_url) or ("Codex 内置 OpenAI 通道" if provider.official else "无 Base URL")
+        tk.Label(info, text=endpoint_text, bg=card.cget("bg"), fg=BLUE, font=("Consolas", 10), cursor="hand2").pack(anchor="w", pady=(5, 0))
         meta = tk.Frame(info, bg=card.cget("bg"))
         meta.pack(anchor="w", pady=(10, 0))
         self._badge(meta, provider.category, "#2b405b", "#b9d8ff").pack(side="left", padx=(0, 7))
-        self._badge(meta, provider.wire_api, "#253a3b", "#9be6c7").pack(side="left")
+        self._badge(meta, "Cookie/ChatGPT" if provider.official else provider.wire_api, "#253a3b", "#9be6c7").pack(side="left")
 
         details = tk.Frame(card, bg=card.cget("bg"), padx=16)
         details.grid(row=0, column=2, rowspan=2, sticky="e")
-        source_text = "当前配置" if is_current else "TOML 配置"
+        source_text = "Codex 官方认证" if provider.official else ("当前配置" if is_current else "TOML 配置")
         tk.Label(details, text=source_text, bg=card.cget("bg"), fg=MUTED, font=("Microsoft YaHei UI", 9)).pack(anchor="e")
-        tk.Label(details, text=(self._current_model() if is_current else "切换后使用当前模型"), bg=card.cget("bg"), fg=TEXT, font=("Consolas", 10)).pack(anchor="e", pady=(5, 0))
-        probe_text, probe_bg, probe_fg = self._probe_badge(provider.provider_id)
-        self._badge(details, probe_text, probe_bg, probe_fg).pack(anchor="e", pady=(8, 0))
+        model_text = "复用已有 Cookie/登录缓存" if provider.official else (self._current_model() if is_current else "切换后使用当前模型")
+        tk.Label(details, text=model_text, bg=card.cget("bg"), fg=TEXT, font=("Consolas", 10)).pack(anchor="e", pady=(5, 0))
+        if provider.official:
+            self._badge(details, "凭据由 Codex 管理", GREEN_DARK, GREEN).pack(anchor="e", pady=(8, 0))
+        else:
+            probe_text, probe_bg, probe_fg = self._probe_badge(provider.provider_id)
+            self._badge(details, probe_text, probe_bg, probe_fg).pack(anchor="e", pady=(8, 0))
 
         actions = tk.Frame(card, bg=card.cget("bg"), padx=16)
         actions.grid(row=0, column=3, rowspan=2, sticky="e")
@@ -368,8 +369,11 @@ class ProviderApp:
             self._badge(actions, "当前", GREEN_DARK, GREEN).pack(fill="x", pady=(0, 7))
         else:
             self._button(actions, "切换", lambda p=provider: self.activate_provider(p.provider_id), BLUE_DARK, "#3b8cf0", width=7).pack(fill="x", pady=(0, 7))
-        self._button(actions, "检测", lambda p=provider: self.probe_provider_id(p.provider_id), "#263449", "#334661", width=7).pack(fill="x", pady=(0, 7))
-        self._button(actions, "编辑", lambda p=provider: self.open_provider_dialog(p), "#263449", "#334661", width=7).pack(fill="x")
+        if provider.official:
+            self._button(actions, "官方登录", self.open_official_login, PURPLE, "#8274ff", width=9).pack(fill="x")
+        else:
+            self._button(actions, "检测", lambda p=provider: self.probe_provider_id(p.provider_id), "#263449", "#334661", width=7).pack(fill="x", pady=(0, 7))
+            self._button(actions, "编辑", lambda p=provider: self.open_provider_dialog(p), "#263449", "#334661", width=7).pack(fill="x")
 
     def _badge(self, parent: tk.Widget, text: str, bg: str, fg: str) -> tk.Label:
         return tk.Label(parent, text=text, bg=bg, fg=fg, font=("Microsoft YaHei UI", 9, "bold"), padx=9, pady=3)
@@ -410,6 +414,13 @@ class ProviderApp:
             if backup:
                 history_text = f" · 会话标识保持 {active_id}" if history_preserved and active_id != provider_id else ""
                 self._log_status(f"已切换到 {provider_id}{history_text} · 备份: {backup.name}")
+        except Exception as exc:
+            self.show_error(exc)
+
+    def open_official_login(self) -> None:
+        try:
+            launch_codex_login(self.home_path())
+            self._log_status("已打开 Codex 官方登录 · Cookie/登录缓存由 Codex 自己保存")
         except Exception as exc:
             self.show_error(exc)
 

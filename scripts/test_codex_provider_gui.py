@@ -87,6 +87,36 @@ class ProviderGuiTests(unittest.TestCase):
                     pass
             root.destroy()
 
+    def test_official_cookie_login_card_is_listed_and_launches_codex_login(self):
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                home = Path(directory)
+                (home / "config.toml").write_text("", encoding="utf-8")
+                app = ProviderApp(root)
+                app.home_var.set(directory)
+                app.refresh()
+
+                labels = [str(item.cget("text")) for item in descendants(app.card_inner) if isinstance(item, tk.Label)]
+                self.assertIn(GUI.OFFICIAL_PROVIDER_NAME, labels)
+                self.assertIn("Cookie/ChatGPT", labels)
+                login_button = next(
+                    item
+                    for item in descendants(app.card_inner)
+                    if isinstance(item, tk.Button) and item.cget("text") == "官方登录"
+                )
+                with mock.patch.object(GUI, "launch_codex_login") as launch_login:
+                    login_button.invoke()
+                    launch_login.assert_called_once_with(home)
+        finally:
+            for child in list(root.winfo_children()):
+                try:
+                    child.destroy()
+                except tk.TclError:
+                    pass
+            root.destroy()
+
     def test_codex_download_dialog_copies_product_id_and_opens_fallback(self):
         root = tk.Tk()
         root.withdraw()

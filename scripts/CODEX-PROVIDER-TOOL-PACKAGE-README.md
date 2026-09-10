@@ -6,6 +6,10 @@ Double-click `CodexProviderTool.exe` to open the desktop page without a console 
 
 The provider editor automatically loads model IDs from the relay's `/models` endpoint and fills an editable model dropdown.
 
+The provider list always includes **OpenAI 官方（ChatGPT/Cookie 登录）**. Switching to it reuses the existing Codex-managed Cookie/login cache without copying or overwriting token contents. With an established custom session identity, the complete official profile is swapped behind the same ID, and the previous relay remains available for lossless switch-back.
+
+Use **官方登录** or run `CodexProviderTool-cli.exe login` to start Codex's official browser login when the cached session has expired.
+
 The Base URL field automatically adds a missing `/v1` and removes duplicate endings such as `/v1/v1/`.
 
 Use **获取 Codex** to open the official Microsoft download page for product ID `9PLM9XGG6VKS`. When Microsoft Store cannot open, the dialog copies the product ID and opens the RG Adguard Store link generator with Chinese instructions.
@@ -22,6 +26,8 @@ Open PowerShell in this directory:
 .\CodexProviderTool-cli.exe check
 .\CodexProviderTool-cli.exe check --remote
 .\CodexProviderTool-cli.exe models
+.\CodexProviderTool-cli.exe use openai
+.\CodexProviderTool-cli.exe login
 ```
 
 The default Codex home is `%CODEX_HOME%` or `%USERPROFILE%\.codex`. To inspect another profile:
@@ -51,4 +57,4 @@ Use `models relay_a --api-key "your-key"` to test the model catalog. The key is 
 
 To explicitly update `auth.json`, add `--api-key "your-key" --write-auth`. A timestamped backup is created before configuration changes.
 
-The package contains no user configuration, API key, cookie, or login state.
+The package contains no user configuration, API key, Cookie, or login state. Switching providers does not edit Codex SQLite, session JSONL, existing chats, or Cookie/token contents.

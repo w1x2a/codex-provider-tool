@@ -6,6 +6,7 @@ import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from unittest import mock
 
 
 MODULE_PATH = Path(__file__).with_name("codex_provider_tool.py")
@@ -37,6 +38,35 @@ class CodexProviderToolTests(unittest.TestCase):
     def test_explicit_codex_home_is_used_even_when_empty(self):
         with tempfile.TemporaryDirectory() as directory:
             self.assertEqual(MODULE.resolve_codex_home(directory), Path(directory))
+
+    def test_provider_list_always_includes_official_cookie_login(self):
+        data = {
+            "model_provider": "custom",
+            "model_providers": {
+                "custom": {
+                    "name": "Relay",
+                    "base_url": "https://relay.example/v1",
+                    "wire_api": "responses",
+                    "requires_openai_auth": True,
+                }
+            },
+        }
+
+        providers = MODULE.get_providers(data)
+        official = next(provider for provider in providers if provider.provider_id == MODULE.OFFICIAL_PROVIDER_ID)
+
+        self.assertTrue(official.official)
+        self.assertFalse(official.current)
+        self.assertEqual(official.name, MODULE.OFFICIAL_PROVIDER_NAME)
+        self.assertEqual(official.base_url, "")
+        self.assertEqual(len(providers), 2)
+
+    def test_missing_model_provider_is_shown_as_official_current(self):
+        providers = MODULE.get_providers({})
+
+        self.assertEqual(len(providers), 1)
+        self.assertEqual(providers[0].provider_id, MODULE.OFFICIAL_PROVIDER_ID)
+        self.assertTrue(providers[0].current)
 
     def test_upsert_and_switch_preserve_existing_tables(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -132,6 +162,23 @@ class CodexProviderToolTests(unittest.TestCase):
             self.assertNotIn('[model_providers.custom]name', text)
             MODULE.read_config(config)
 
+    def test_add_rejects_reserved_builtin_openai_id(self):
+        with tempfile.TemporaryDirectory() as directory:
+            args = MODULE.build_parser().parse_args(
+                [
+                    "--codex-home",
+                    directory,
+                    "add",
+                    MODULE.OFFICIAL_PROVIDER_ID,
+                    "--base-url",
+                    "https://relay.example/v1",
+                    "--model",
+                    "relay-model",
+                ]
+            )
+            with self.assertRaisesRegex(MODULE.ToolError, "reserved by Codex"):
+                MODULE.upsert_provider(Path(directory), args)
+
     def test_switch_provider_keeps_session_identity_and_nested_tables(self):
         text = (
             'model_provider = "custom"\nmodel = "model-a"\n\n'
@@ -167,6 +214,123 @@ class CodexProviderToolTests(unittest.TestCase):
         self.assertEqual(data["model_providers"]["relay_b"]["auth"]["command"], "token-a")
         self.assertEqual(data["model_providers"]["relay_b"]["auth"]["args"], ["--profile", "a"])
         self.assertEqual(data["model_providers"]["relay_b"]["auth"]["timeout_ms"], 1200)
+
+    def test_official_cookie_switch_preserves_identity_and_all_codex_data(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            config = home / "config.toml"
+            auth = home / "auth.json"
+            sqlite_file = home / "state.sqlite"
+            transcript = home / "sessions" / "one.jsonl"
+            transcript.parent.mkdir()
+            config.write_text(
+                'model_provider = "custom"\nmodel = "relay-model"\n\n'
+                '[model_providers.custom]\n'
+                'name = "Relay"\n'
+                'base_url = "https://relay.example/v1"\n'
+                'wire_api = "responses"\n'
+                'requires_openai_auth = false\n\n'
+                '[model_providers.custom.auth]\n'
+                'command = "relay-token"\n'
+                'args = ["--relay"]\n',
+                encoding="utf-8",
+            )
+            auth.write_text(
+                '{"auth_mode":"chatgpt","tokens":{"access_token":"cookie-token","refresh_token":"refresh"}}\n',
+                encoding="utf-8",
+            )
+            sqlite_file.write_bytes(b"sqlite-fixture")
+            transcript.write_text('{"type":"message","text":"keep"}\n', encoding="utf-8")
+            untouched = {
+                auth: auth.read_bytes(),
+                sqlite_file: sqlite_file.read_bytes(),
+                transcript: transcript.read_bytes(),
+            }
+
+            official_args = MODULE.build_parser().parse_args(
+                ["--codex-home", directory, "use", MODULE.OFFICIAL_PROVIDER_ID]
+            )
+            self.assertEqual(MODULE.command_use(official_args), 0)
+
+            _, official_data = MODULE.read_config(config)
+            self.assertEqual(official_data["model_provider"], "custom")
+            self.assertEqual(
+                official_data["model_providers"]["custom"]["name"],
+                MODULE.OFFICIAL_PROVIDER_NAME,
+            )
+            self.assertNotIn("base_url", official_data["model_providers"]["custom"])
+            self.assertTrue(official_data["model_providers"]["custom"]["requires_openai_auth"])
+            storage_ids = [
+                provider_id
+                for provider_id, value in official_data["model_providers"].items()
+                if value.get("name") == "Relay"
+            ]
+            self.assertEqual(len(storage_ids), 1)
+            relay_storage_id = storage_ids[0]
+            self.assertEqual(official_data["model_providers"][relay_storage_id]["auth"]["command"], "relay-token")
+            official_card = next(provider for provider in MODULE.get_providers(official_data) if provider.official)
+            self.assertTrue(official_card.current)
+
+            relay_args = MODULE.build_parser().parse_args(
+                ["--codex-home", directory, "use", relay_storage_id]
+            )
+            self.assertEqual(MODULE.command_use(relay_args), 0)
+            _, restored_data = MODULE.read_config(config)
+            self.assertEqual(restored_data["model_provider"], "custom")
+            self.assertEqual(restored_data["model_providers"]["custom"]["name"], "Relay")
+            self.assertEqual(restored_data["model_providers"]["custom"]["auth"]["command"], "relay-token")
+
+            for path, before in untouched.items():
+                self.assertEqual(path.read_bytes(), before)
+
+    def test_builtin_official_switch_removes_only_openai_base_url_override(self):
+        text = (
+            'openai_base_url = "https://relay.example/v1"\n'
+            'service_tier = "fast"\n'
+            'model = "gpt-5.6"\n'
+        )
+        import tomllib
+
+        updated, active_id, preserved = MODULE.switch_provider_preserving_history(
+            text,
+            tomllib.loads(text),
+            MODULE.OFFICIAL_PROVIDER_ID,
+        )
+        data = tomllib.loads(updated)
+
+        self.assertEqual(active_id, MODULE.OFFICIAL_PROVIDER_ID)
+        self.assertFalse(preserved)
+        self.assertEqual(data["model_provider"], MODULE.OFFICIAL_PROVIDER_ID)
+        self.assertNotIn("openai_base_url", data)
+        self.assertEqual(data["service_tier"], "fast")
+        self.assertEqual(data["model"], "gpt-5.6")
+
+    @unittest.skipUnless(MODULE.os.name == "nt", "Windows PowerShell launcher test")
+    def test_official_login_launcher_uses_pwsh_and_selected_codex_home(self):
+        home = Path(r"D:\isolated-codex-home")
+        process = mock.Mock()
+        with (
+            mock.patch.object(
+                MODULE.shutil,
+                "which",
+                side_effect=lambda name: r"C:\Program Files\PowerShell\7\pwsh.exe" if name == "pwsh" else r"C:\tools\codex.ps1",
+            ),
+            mock.patch.object(MODULE.subprocess, "Popen", return_value=process) as popen,
+        ):
+            self.assertIs(MODULE.launch_codex_login(home), process)
+
+        command = popen.call_args.args[0]
+        options = popen.call_args.kwargs
+        self.assertEqual(command[0], r"C:\Program Files\PowerShell\7\pwsh.exe")
+        self.assertIn("-NoProfile", command)
+        self.assertIn("-NoExit", command)
+        script = command[-1]
+        self.assertTrue(script.startswith("$ErrorActionPreference = 'Stop'\n$PSNativeCommandUseErrorActionPreference = $true\n"))
+        self.assertTrue(script.endswith("codex login"))
+        self.assertEqual(options["env"]["CODEX_HOME"], str(home))
+        self.assertNotIn("token", script.casefold())
+        self.assertNotIn("cookie", script.casefold())
+        self.assertNotIn("api_key", script.casefold())
 
     def test_switch_rejects_missing_current_profile_without_changing_identity(self):
         text = (
