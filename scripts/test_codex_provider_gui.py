@@ -148,6 +148,9 @@ class ProviderGuiTests(unittest.TestCase):
         self.assertEqual(GUI.choose_recommended_model(models, "gpt-5.5"), "gpt-5.5")
         self.assertEqual(GUI.choose_recommended_model(models, "missing"), "gpt-5.6-luna")
 
+    def test_recommended_model_prefers_gpt6_when_reported(self):
+        self.assertEqual(GUI.choose_recommended_model(["gpt-5.6-sol", "gpt-6", "gpt-6-astra"], "missing"), "gpt-6-astra")
+
     def test_provider_dialog_automatically_loads_models(self):
         server = ThreadingHTTPServer(("127.0.0.1", 0), ModelHandler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)

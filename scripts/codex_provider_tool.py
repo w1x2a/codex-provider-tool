@@ -709,6 +709,17 @@ def activate_provider(
     return active_id, backups
 
 
+def set_active_model(home: Path, model: str) -> Path | None:
+    selected = model.strip()
+    if not selected:
+        raise ToolError("Model cannot be empty")
+    config_path = home / "config.toml"
+    text, _ = read_config(config_path)
+    backup = backup_file(config_path, "provider-tool")
+    atomic_write(config_path, set_top_level_value(text, "model", toml_string(selected)))
+    return backup
+
+
 def upsert_provider(home: Path, args: argparse.Namespace) -> tuple[Path, list[Path]]:
     if not PROVIDER_ID_RE.fullmatch(args.provider_id):
         raise ToolError("provider id may contain only letters, digits, '_' and '-'")
@@ -858,6 +869,16 @@ def command_use(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_model(args: argparse.Namespace) -> int:
+    home = resolve_codex_home(args.codex_home)
+    backup = set_active_model(home, args.model)
+    print(f"Active model: {args.model}")
+    if backup:
+        print(f"Backup: {backup}")
+    print("Restart Codex to reload the selected model for existing chats.")
+    return 0
+
+
 def command_login(args: argparse.Namespace) -> int:
     home = resolve_codex_home(args.codex_home)
     process = launch_codex_login(home, new_console=False)
@@ -903,6 +924,10 @@ def build_parser() -> argparse.ArgumentParser:
     use.add_argument("--api-key", help="submit this relay key to Codex's official API-key login")
     use.add_argument("--restore-official-identity", action="store_true", help="repair old official chats by restoring their original openai identity")
     use.set_defaults(func=command_use)
+
+    model = subparsers.add_parser("model", help="set the top-level model without changing provider identity")
+    model.add_argument("model")
+    model.set_defaults(func=command_model)
 
     login = subparsers.add_parser("login", help="start the official Codex ChatGPT/Cookie login flow")
     login.set_defaults(func=command_login)

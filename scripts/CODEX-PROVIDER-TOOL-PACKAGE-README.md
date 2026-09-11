@@ -6,6 +6,8 @@ Double-click `CodexProviderTool.exe` to open the desktop page without a console 
 
 The provider editor automatically loads model IDs from the relay's `/models` endpoint and fills an editable model dropdown.
 
+On the active relay card, **模型** refreshes the complete `/models` list and applies the selected model without changing provider identity or chat visibility. `gpt-6-astra` is preferred when the relay reports it; relay aliases such as `gpt-6` remain selectable.
+
 The provider list always includes **OpenAI 官方（ChatGPT/Cookie 登录）**. Before relay API-key activation, the tool creates a local backup of the Codex-managed official login. Switching to the official card restores that backup and removes the relay override. Existing built-in `openai` conversations keep their identity and route through Codex's supported `openai_base_url` setting, so those chats remain visible.
 
 Use **官方登录** or run `CodexProviderTool-cli.exe login` to start Codex's official browser login when the cached session has expired.

@@ -68,6 +68,21 @@ class CodexProviderToolTests(unittest.TestCase):
         self.assertEqual(providers[0].provider_id, MODULE.OFFICIAL_PROVIDER_ID)
         self.assertTrue(providers[0].current)
 
+    def test_setting_model_does_not_change_provider_or_chat_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            config = home / "config.toml"
+            chat = home / "sessions" / "one.jsonl"
+            chat.parent.mkdir()
+            config.write_text('model_provider = "openai"\nmodel = "old"\n', encoding="utf-8")
+            chat.write_bytes(b"keep")
+            backup = MODULE.set_active_model(home, "gpt-6")
+            self.assertIsNotNone(backup)
+            _, data = MODULE.read_config(config)
+            self.assertEqual(data["model_provider"], "openai")
+            self.assertEqual(data["model"], "gpt-6")
+            self.assertEqual(chat.read_bytes(), b"keep")
+
     def test_upsert_and_switch_preserve_existing_tables(self):
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)

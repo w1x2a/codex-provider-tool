@@ -30,6 +30,7 @@ from codex_provider_tool import (
     repair_collapsed_provider_headers,
     resolve_codex_home,
     safe_url,
+    set_active_model,
     upsert_provider,
 )
 
@@ -56,7 +57,7 @@ CODEX_FALLBACK_STORE_URL = "https://store.rg-adguard.net/"
 def choose_recommended_model(models: list[str], current_model: str) -> str:
     available = sorted(set(models), key=str.casefold)
     lookup = {item.casefold(): item for item in available}
-    candidates = [current_model, "gpt-5.6-luna", "gpt-5.6", "gpt-5.5"]
+    candidates = [current_model, "gpt-6-astra", "gpt-6", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.6", "gpt-5.5"]
     for candidate in candidates:
         match = lookup.get(candidate.strip().casefold())
         if match:
@@ -370,6 +371,8 @@ class ProviderApp:
             self._button(actions, "官方登录", self.open_official_login, PURPLE, "#8274ff", width=9).pack(fill="x")
         else:
             self._button(actions, "检测", lambda p=provider: self.probe_provider_id(p.provider_id), "#263449", "#334661", width=7).pack(fill="x", pady=(0, 7))
+            if is_current:
+                self._button(actions, "模型", lambda p=provider: self.open_model_dialog(p), "#263449", "#334661", width=7).pack(fill="x", pady=(0, 7))
             self._button(actions, "编辑", lambda p=provider: self.open_provider_dialog(p), "#263449", "#334661", width=7).pack(fill="x")
             self._button(actions, "修复官方旧会话", lambda p=provider: self.repair_official_identity(p.provider_id), "#263449", "#334661", width=14).pack(fill="x", pady=(7, 0))
 
@@ -454,6 +457,57 @@ class ProviderApp:
             self.probe_state[provider_id] = ("error", "检测失败")
             self._log_status(f"检测失败 · {provider_id} · {result.message}")
         self.render_cards()
+
+    def open_model_dialog(self, provider: Provider) -> None:
+        dialog = tk.Toplevel(self.root)
+        dialog.title("选择模型")
+        dialog.configure(bg=BG)
+        dialog.transient(self.root)
+        dialog.grab_set()
+        body = tk.Frame(dialog, bg=BG, padx=24, pady=22)
+        body.pack(fill="both", expand=True)
+        tk.Label(body, text=provider.name, bg=BG, fg=TEXT, font=("Microsoft YaHei UI", 14, "bold")).pack(anchor="w")
+        status = tk.StringVar(value="正在同步中转模型...")
+        model = tk.StringVar(value=self._current_model())
+        combo = ttk.Combobox(body, textvariable=model, values=(model.get(),), state="normal", width=48, style="Dark.TCombobox")
+        combo.pack(fill="x", pady=(14, 7))
+        tk.Label(body, textvariable=status, bg=BG, fg="#79baff", font=("Microsoft YaHei UI", 9)).pack(anchor="w")
+
+        def apply() -> None:
+            try:
+                selected = model.get().strip()
+                backup = set_active_model(self.home_path(), selected)
+                dialog.destroy()
+                self.refresh()
+                suffix = f" · 备份: {backup.name}" if backup else ""
+                self._log_status(f"模型已设为 {selected}{suffix} · 请完全退出并重新打开 Codex")
+            except Exception as exc:
+                messagebox.showerror("Codex Provider Tool", str(exc), parent=dialog)
+
+        controls = tk.Frame(body, bg=BG)
+        controls.pack(anchor="e", pady=(18, 0))
+        self._button(controls, "取消", dialog.destroy, "#263449", "#334661", width=8).pack(side="right")
+        self._button(controls, "应用模型", apply, PURPLE, "#8274ff", width=10).pack(side="right", padx=(0, 8))
+
+        def fetch() -> None:
+            try:
+                key, _ = load_auth_key(self.home_path())
+                result = probe_provider(provider, key, 10)
+                if not result.ok:
+                    raise ToolError(result.message)
+                models = sorted(set(result.models), key=str.casefold)
+                self.root.after(0, lambda: finish(models))
+            except Exception as exc:
+                self.root.after(0, lambda: status.set(f"同步失败：{exc}"))
+
+        def finish(models: list[str]) -> None:
+            combo.configure(values=models)
+            if model.get().strip() not in models:
+                model.set(choose_recommended_model(models, model.get()))
+            status.set(f"已同步 {len(models)} 个模型，可输入中转支持的其他 ID")
+
+        threading.Thread(target=fetch, daemon=True).start()
+        self._center_dialog(dialog, 520)
 
     def open_add_provider_choice(self) -> None:
         self.open_provider_dialog()

@@ -8,6 +8,8 @@ The tool checks the local Codex provider configuration, lists the official OpenA
 
 When adding or editing a provider, the model selector automatically requests `GET /models` after the Base URL or API key changes. The returned model IDs are loaded into an editable dropdown.
 
+For the active relay, use the **模型** button to refresh its complete `/models` list and set the top-level Codex model without changing the provider/session identity. The selector prefers `gpt-6-astra` when available, and also keeps relay-provided IDs such as `gpt-6` selectable.
+
 Base URLs are normalized automatically: a missing `/v1` is appended, while repeated endings such as `/v1/v1/` are collapsed to one `/v1`.
 
 Provider dialogs open centered over the main window and remain within the current virtual desktop bounds.
