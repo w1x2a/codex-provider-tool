@@ -19,8 +19,7 @@ from codex_provider_tool import (
     OFFICIAL_PROVIDER_NAME,
     Provider,
     ToolError,
-    atomic_write,
-    backup_file,
+    activate_provider as apply_provider,
     find_provider,
     get_providers,
     load_auth_key,
@@ -31,7 +30,6 @@ from codex_provider_tool import (
     repair_collapsed_provider_headers,
     resolve_codex_home,
     safe_url,
-    switch_provider_preserving_history,
     upsert_provider,
 )
 
@@ -302,7 +300,7 @@ class ProviderApp:
             current = next((provider for provider in providers if provider.current), None)
             if current:
                 base = safe_url(current.base_url) or ("Codex 内置官方通道" if current.official else "无 Base URL")
-                self.current_banner_var.set(f"当前使用：{current.name}   ·   {data.get('model') or '未设置模型'}   ·   {base}")
+                self.current_banner_var.set(f"已选配置：{current.name}   ·   {data.get('model') or '未设置模型'}   ·   {base}")
             else:
                 self.current_banner_var.set("当前使用：尚未配置有效 Provider")
             auth_cache = "登录缓存文件存在" if (home / "auth.json").is_file() else "登录状态由 Codex 管理"
@@ -367,13 +365,13 @@ class ProviderApp:
         actions.grid(row=0, column=3, rowspan=2, sticky="e")
         if is_current:
             self._badge(actions, "当前", GREEN_DARK, GREEN).pack(fill="x", pady=(0, 7))
-        else:
-            self._button(actions, "切换", lambda p=provider: self.activate_provider(p.provider_id), BLUE_DARK, "#3b8cf0", width=7).pack(fill="x", pady=(0, 7))
+        self._button(actions, "应用" if is_current else "切换", lambda p=provider: self.activate_provider(p.provider_id), BLUE_DARK, "#3b8cf0", width=7).pack(fill="x", pady=(0, 7))
         if provider.official:
             self._button(actions, "官方登录", self.open_official_login, PURPLE, "#8274ff", width=9).pack(fill="x")
         else:
             self._button(actions, "检测", lambda p=provider: self.probe_provider_id(p.provider_id), "#263449", "#334661", width=7).pack(fill="x", pady=(0, 7))
             self._button(actions, "编辑", lambda p=provider: self.open_provider_dialog(p), "#263449", "#334661", width=7).pack(fill="x")
+            self._button(actions, "修复官方旧会话", lambda p=provider: self.repair_official_identity(p.provider_id), "#263449", "#334661", width=14).pack(fill="x", pady=(7, 0))
 
     def _badge(self, parent: tk.Widget, text: str, bg: str, fg: str) -> tk.Label:
         return tk.Label(parent, text=text, bg=bg, fg=fg, font=("Microsoft YaHei UI", 9, "bold"), padx=9, pady=3)
@@ -402,20 +400,23 @@ class ProviderApp:
         self.status_var.set("操作失败")
         messagebox.showerror("Codex Provider Tool", str(error), parent=self.root)
 
-    def activate_provider(self, provider_id: str) -> None:
+    def activate_provider(self, provider_id: str, restore_official_identity: bool = False) -> None:
         try:
-            config_path = self.home_path() / "config.toml"
-            text, data = read_config(config_path)
-            updated, active_id, history_preserved = switch_provider_preserving_history(text, data, provider_id)
-            backup = backup_file(config_path, "provider-tool")
-            atomic_write(config_path, updated)
-            self._log_status(f"已切换到 {provider_id} · 备份已生成")
+            active_id, backups = apply_provider(self.home_path(), provider_id, restore_official_identity=restore_official_identity)
             self.refresh()
-            if backup:
-                history_text = f" · 会话标识保持 {active_id}" if history_preserved and active_id != provider_id else ""
-                self._log_status(f"已切换到 {provider_id}{history_text} · 备份: {backup.name}")
+            self._log_status(f"配置已保存 · 会话标识 {active_id} · {len(backups)} 个备份 · 请完全退出并重新打开 Codex，实际请求尚未验证")
         except Exception as exc:
             self.show_error(exc)
+
+    def repair_official_identity(self, provider_id: str) -> None:
+        if messagebox.askyesno(
+            "修复官方旧会话",
+            "仅用于原来使用官方登录、旧版工具切换后无效的聊天。\n"
+            "将配置中的会话标识恢复为 openai，并使用所选中转站及其 API Key。\n"
+            "自动备份配置和认证；不修改聊天记录。保存后需重新启动 Codex。",
+            parent=self.root,
+        ):
+            self.activate_provider(provider_id, restore_official_identity=True)
 
     def open_official_login(self) -> None:
         try:
@@ -622,7 +623,7 @@ class ProviderApp:
         key_entry = tk.Entry(body, textvariable=api_key, show="*", bg="#1c293d", fg=TEXT, insertbackground=TEXT, relief="flat", bd=0, font=("Segoe UI", 10), width=44)
         key_entry.grid(row=row, column=1, pady=7, ipady=7, sticky="ew")
         row += 1
-        tk.Checkbutton(body, text="将 API Key 写入 auth.json", variable=write_auth, bg=BG, fg="#c5cfde", activebackground=BG, activeforeground=TEXT, selectcolor="#1c293d").grid(row=row, column=1, pady=(5, 14), sticky="w")
+        tk.Checkbutton(body, text="保存此供应商 API Key（启用时切换认证，保留官方登录）", variable=write_auth, bg=BG, fg="#c5cfde", activebackground=BG, activeforeground=TEXT, selectcolor="#1c293d").grid(row=row, column=1, pady=(5, 14), sticky="w")
 
         buttons = tk.Frame(body, bg=BG)
         buttons.grid(row=row + 1, column=0, columnspan=2, sticky="e")
@@ -650,6 +651,8 @@ class ProviderApp:
                 self._log_status(f"已保存 {args.provider_id} · {config_path.name}")
                 if backups:
                     self._log_status(f"已保存 {args.provider_id} · 已生成 {len(backups)} 个备份")
+                if args.activate:
+                    self._log_status(f"{args.provider_id} 配置已保存 · 请完全退出并重新打开 Codex · 实际请求尚未验证")
             except Exception as exc:
                 messagebox.showerror("Codex Provider Tool", str(exc), parent=dialog)
 

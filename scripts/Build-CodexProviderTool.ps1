@@ -3,6 +3,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$PSNativeCommandUseErrorActionPreference = $true
 $root = Split-Path -Parent $PSScriptRoot
 $distRoot = Join-Path $root "dist"
 $packageName = "CodexProviderTool-windows-x64"

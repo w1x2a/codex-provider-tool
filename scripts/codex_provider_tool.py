@@ -30,6 +30,7 @@ COLLAPSED_PROVIDER_HEADER_RE = re.compile(
 OFFICIAL_PROVIDER_ID = "openai"
 OFFICIAL_PROVIDER_NAME = "OpenAI 官方（ChatGPT/Cookie 登录）"
 OFFICIAL_PROFILE_STORAGE_ID = "codex_official"
+OFFICIAL_AUTH_BACKUP_LABEL = "provider-tool-official-auth"
 
 
 class ToolError(RuntimeError):
@@ -170,15 +171,18 @@ def is_managed_official_profile(raw: Any) -> bool:
 
 
 def get_providers(data: dict[str, Any]) -> list[Provider]:
-    current_id = str(data.get("model_provider") or "")
+    current_id = str(data.get("model_provider") or OFFICIAL_PROVIDER_ID)
     raw_providers = data.get("model_providers") or {}
     if not isinstance(raw_providers, dict):
         raise ToolError("config.toml has an invalid model_providers table")
 
     current_raw = raw_providers.get(current_id)
+    builtin_url = str(data.get("openai_base_url") or "").rstrip("/")
+    builtin_relay = next((str(pid) for pid, raw in raw_providers.items()
+                          if isinstance(raw, dict) and builtin_url
+                          and str(raw.get("base_url") or "").rstrip("/") == builtin_url), None)
     official_current = (
-        not current_id
-        or current_id == OFFICIAL_PROVIDER_ID
+        (current_id == OFFICIAL_PROVIDER_ID and not builtin_url)
         or is_managed_official_profile(current_raw)
     )
     providers: list[Provider] = [
@@ -206,7 +210,8 @@ def get_providers(data: dict[str, Any]) -> list[Provider]:
                 base_url=str(raw.get("base_url") or ""),
                 wire_api=str(raw.get("wire_api") or "responses"),
                 requires_openai_auth=bool(raw.get("requires_openai_auth", True)),
-                current=str(provider_id) == current_id,
+                current=(str(provider_id) == builtin_relay if current_id == OFFICIAL_PROVIDER_ID
+                         else str(provider_id) == current_id),
             )
         )
     return providers
@@ -214,7 +219,11 @@ def get_providers(data: dict[str, Any]) -> list[Provider]:
 
 def find_provider(data: dict[str, Any], provider_id: str | None) -> Provider:
     providers = get_providers(data)
-    current_id = str(data.get("model_provider") or "")
+    if provider_id is None:
+        active = next((provider for provider in providers if provider.current), None)
+        if active is not None:
+            return active
+    current_id = str(data.get("model_provider") or OFFICIAL_PROVIDER_ID)
     raw_providers = data.get("model_providers") or {}
     current_raw = raw_providers.get(current_id) if isinstance(raw_providers, dict) else None
     if provider_id:
@@ -426,9 +435,9 @@ def switch_provider_preserving_history(
     model: str | None = None,
 ) -> tuple[str, str, bool]:
     find_provider(data, provider_id)
-    current_id = str(data.get("model_provider") or "")
+    current_id = str(data.get("model_provider") or OFFICIAL_PROVIDER_ID)
     if provider_id == OFFICIAL_PROVIDER_ID:
-        if not current_id or current_id == OFFICIAL_PROVIDER_ID:
+        if current_id == OFFICIAL_PROVIDER_ID:
             updated = remove_top_level_value(text, "openai_base_url")
             updated = set_top_level_value(updated, "model_provider", toml_string(OFFICIAL_PROVIDER_ID))
             if model:
@@ -455,11 +464,25 @@ def switch_provider_preserving_history(
             updated = set_top_level_value(updated, "model", toml_string(model))
         return updated, current_id, True
 
-    if not current_id:
-        updated = set_top_level_value(text, "model_provider", toml_string(provider_id))
+    if current_id == OFFICIAL_PROVIDER_ID:
+        raw = data["model_providers"][provider_id]
+        # Codex reserves the built-in openai table. Use its supported URL override
+        # and reject options that cannot be honored instead of silently dropping them.
+        unsupported = set(raw) - {"name", "base_url", "wire_api", "requires_openai_auth"}
+        if unsupported or raw.get("wire_api", "responses") != "responses" or raw.get("requires_openai_auth", True) is not True:
+            fields = ", ".join(sorted(unsupported)) or "wire_api / requires_openai_auth"
+            raise ToolError(
+                f"Cannot preserve built-in openai identity with these provider options: {fields}. "
+                "The built-in route supports Responses with API-key authentication; "
+                "custom session identities can exchange complete provider/auth tables."
+            )
+        if not raw.get("base_url"):
+            raise ToolError("The selected relay has no base_url")
+        updated = set_top_level_value(text, "model_provider", toml_string(OFFICIAL_PROVIDER_ID))
+        updated = set_top_level_value(updated, "openai_base_url", toml_string(raw["base_url"]))
         if model:
             updated = set_top_level_value(updated, "model", toml_string(model))
-        return updated, provider_id, False
+        return updated, OFFICIAL_PROVIDER_ID, True
     if current_id == provider_id:
         updated = set_top_level_value(text, "model_provider", toml_string(current_id))
         if model:
@@ -543,13 +566,147 @@ def atomic_write(path: Path, text: str) -> None:
         raise ToolError(f"Cannot write {path}: {exc}") from exc
 
 
-def write_auth_key(home: Path, key: str) -> Path | None:
-    path = home / "auth.json"
-    auth = read_json(path)
-    backup = backup_file(path, "provider-tool-auth")
-    auth["OPENAI_API_KEY"] = key
-    atomic_write(path, json.dumps(auth, indent=2, ensure_ascii=True) + "\n")
-    return backup
+def atomic_write_bytes(path: Path, content: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary: str | None = None
+    try:
+        with tempfile.NamedTemporaryFile("wb", dir=path.parent, delete=False) as handle:
+            handle.write(content)
+            temporary = handle.name
+        os.replace(temporary, path)
+    except OSError as exc:
+        if temporary:
+            Path(temporary).unlink(missing_ok=True)
+        raise ToolError(f"Cannot write {path}: {exc}") from exc
+
+
+def latest_backup(path: Path, label: str) -> Path | None:
+    matches = sorted(path.parent.glob(f"{path.name}.bak-{label}-*"), key=lambda item: item.stat().st_mtime, reverse=True)
+    return matches[0] if matches else None
+
+
+def native_codex_executable() -> str:
+    local_root = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local") / "OpenAI" / "Codex" / "bin"
+    candidates = sorted(local_root.glob("*/codex.exe"), key=lambda item: item.stat().st_mtime, reverse=True)
+    if candidates:
+        return str(candidates[0])
+    command = shutil.which("codex")
+    if command:
+        return command
+    raise ToolError("Cannot find the Codex CLI needed to activate an API-key provider")
+
+
+def codex_login_with_api_key(home: Path, api_key: str) -> None:
+    environment = os.environ.copy()
+    environment["CODEX_HOME"] = str(home)
+    creation_flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+    try:
+        result = subprocess.run(
+            [native_codex_executable(), "login", "--with-api-key"],
+            input=api_key + "\n",
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            env=environment,
+            capture_output=True,
+            timeout=30,
+            creationflags=creation_flags,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise ToolError(f"Codex API-key login could not start: {exc}") from exc
+    if result.returncode:
+        raise ToolError("Codex rejected the provider API Key; the previous Cookie/login state was restored")
+
+
+def activate_provider(
+    home: Path, provider_id: str, model: str | None = None,
+    restore_official_identity: bool = False, api_key: str | None = None,
+) -> tuple[str, list[Path]]:
+    text, data = read_config(home / "config.toml")
+    target = find_provider(data, provider_id)
+    switch_data = data
+    if restore_official_identity:
+        # Explicit repair for older releases that changed implicit openai to a new ID.
+        switch_data = dict(data, model_provider=OFFICIAL_PROVIDER_ID)
+        text = set_top_level_value(text, "model_provider", toml_string(OFFICIAL_PROVIDER_ID))
+    updated, active_id, _ = switch_provider_preserving_history(text, switch_data, provider_id, model)
+    config_path = home / "config.toml"
+    auth_path = home / "auth.json"
+    before_config = config_path.read_bytes() if config_path.is_file() else None
+    before_auth = auth_path.read_bytes() if auth_path.is_file() else None
+    backups: list[Path] = []
+    if target.official:
+        active = find_provider(data, None)
+        if active.official and not data.get("openai_base_url"):
+            return active_id, backups
+        official_auth = latest_backup(auth_path, OFFICIAL_AUTH_BACKUP_LABEL)
+        if not official_auth:
+            if read_json(auth_path).get("tokens"):
+                config_backup = backup_file(config_path, "provider-tool")
+                if config_backup:
+                    backups.append(config_backup)
+                atomic_write(config_path, updated)
+                return active_id, backups
+            raise ToolError("找不到官方 Cookie 登录备份；请先点击“官方登录”重新登录。")
+        active_backup = backup_file(auth_path, f"provider-tool-relay-{active.provider_id}")
+        if active_backup:
+            backups.append(active_backup)
+        config_backup = backup_file(config_path, "provider-tool")
+        if config_backup:
+            backups.append(config_backup)
+        try:
+            atomic_write(config_path, updated)
+            atomic_write_bytes(auth_path, official_auth.read_bytes())
+        except Exception:
+            if before_config is None:
+                config_path.unlink(missing_ok=True)
+            else:
+                atomic_write_bytes(config_path, before_config)
+            if before_auth is None:
+                auth_path.unlink(missing_ok=True)
+            else:
+                atomic_write_bytes(auth_path, before_auth)
+            raise
+        return active_id, backups
+
+    # A pre-existing custom session identity can exchange complete provider tables,
+    # including its own auth helper. The built-in openai identity instead requires
+    # Codex's supported API-key login for the openai_base_url override.
+    if active_id != OFFICIAL_PROVIDER_ID:
+        config_backup = backup_file(config_path, "provider-tool")
+        if config_backup:
+            backups.append(config_backup)
+        atomic_write(config_path, updated)
+        return active_id, backups
+
+    relay_auth = latest_backup(auth_path, f"provider-tool-relay-{provider_id}")
+    stored_key = read_json(relay_auth).get("OPENAI_API_KEY") if relay_auth else None
+    key = api_key or stored_key or read_json(auth_path).get("OPENAI_API_KEY")
+    if not isinstance(key, str) or not key:
+        raise ToolError("该中转站没有可用 API Key；请在编辑供应商中填写 API Key 后保存。")
+    current_auth = read_json(auth_path)
+    if current_auth.get("tokens"):
+        official_backup = backup_file(auth_path, OFFICIAL_AUTH_BACKUP_LABEL)
+        if official_backup:
+            backups.append(official_backup)
+    config_backup = backup_file(config_path, "provider-tool")
+    if config_backup:
+        backups.append(config_backup)
+    try:
+        atomic_write(config_path, updated)
+        # Let Codex create its own supported API-key credential representation.
+        codex_login_with_api_key(home, key)
+    except Exception:
+        if before_config is None:
+            config_path.unlink(missing_ok=True)
+        else:
+            atomic_write_bytes(config_path, before_config)
+        if before_auth is None:
+            auth_path.unlink(missing_ok=True)
+        else:
+            atomic_write_bytes(auth_path, before_auth)
+        raise
+    return active_id, backups
 
 
 def upsert_provider(home: Path, args: argparse.Namespace) -> tuple[Path, list[Path]]:
@@ -560,8 +717,10 @@ def upsert_provider(home: Path, args: argparse.Namespace) -> tuple[Path, list[Pa
     normalized_base_url = normalize_base_url(args.base_url)
     if args.write_auth and not args.api_key:
         raise ToolError("--write-auth requires --api-key")
+    if args.write_auth and not args.activate:
+        raise ToolError("API Key is applied only during activation so Codex can manage it safely; add --activate.")
     config_path = home / "config.toml"
-    text, _ = read_config(config_path)
+    text, previous = read_config(config_path)
     values = {
         "name": toml_string(args.label or args.provider_id),
         "base_url": toml_string(normalized_base_url),
@@ -569,24 +728,25 @@ def upsert_provider(home: Path, args: argparse.Namespace) -> tuple[Path, list[Pa
         "requires_openai_auth": "true" if args.requires_openai_auth else "false",
     }
     updated = update_provider_block(text, args.provider_id, values)
-    if args.activate:
-        try:
-            import tomllib
+    import tomllib
 
-            updated_data = tomllib.loads(updated)
-        except Exception as exc:
-            raise ToolError(f"Cannot activate provider because the updated config is invalid: {exc}") from exc
-        updated, _, _ = switch_provider_preserving_history(updated, updated_data, args.provider_id, args.model)
-    backups: list[Path] = []
+    updated_data = tomllib.loads(updated)
+    if args.activate:
+        original = config_path.read_bytes() if config_path.is_file() else None
+        backup = backup_file(config_path, "provider-tool")
+        try:
+            atomic_write(config_path, updated)
+            _, activation_backups = activate_provider(home, args.provider_id, args.model, api_key=args.api_key)
+        except Exception:
+            if original is None:
+                config_path.unlink(missing_ok=True)
+            else:
+                atomic_write_bytes(config_path, original)
+            raise
+        return config_path, ([backup] if backup else []) + activation_backups
     backup = backup_file(config_path, "provider-tool")
-    if backup:
-        backups.append(backup)
     atomic_write(config_path, updated)
-    if args.write_auth:
-        auth_backup = write_auth_key(home, args.api_key)
-        if auth_backup:
-            backups.append(auth_backup)
-    return config_path, backups
+    return config_path, [backup] if backup else []
 
 
 def print_check(home: Path, data: dict[str, Any], auth_source: str, auth_key: str | None) -> None:
@@ -670,7 +830,7 @@ def command_add(args: argparse.Namespace) -> int:
     for backup in backups:
         print(f"Backup: {backup}")
     if args.write_auth:
-        print("Auth: OPENAI_API_KEY updated in auth.json")
+        print("API key was submitted to Codex for API-key login; the official ChatGPT login snapshot was backed up.")
     if args.activate:
         _, active_data = read_config(config_path)
         active_id = str(active_data.get("model_provider") or args.provider_id)
@@ -685,21 +845,16 @@ def command_add(args: argparse.Namespace) -> int:
 def command_use(args: argparse.Namespace) -> int:
     home = resolve_codex_home(args.codex_home)
     config_path = home / "config.toml"
-    text, data = read_config(config_path)
-    updated, active_id, history_preserved = switch_provider_preserving_history(
-        text,
-        data,
-        args.provider_id,
-        args.model,
+    active_id, backups = activate_provider(
+        home, args.provider_id, args.model, args.restore_official_identity, args.api_key,
     )
-    backup = backup_file(config_path, "provider-tool")
-    atomic_write(config_path, updated)
-    print(f"Active provider: {args.provider_id}")
-    if history_preserved and active_id != args.provider_id:
+    print(f"Provider configuration saved: {args.provider_id}")
+    if active_id != args.provider_id:
         print(f"Session identity: {active_id} (preserved for chat history)")
     print(f"Config: {config_path}")
-    if backup:
+    for backup in backups:
         print(f"Backup: {backup}")
+    print("Restart Codex to reload the route for existing chats; saved configuration is not a traffic check.")
     return 0
 
 
@@ -739,12 +894,14 @@ def build_parser() -> argparse.ArgumentParser:
     auth_group.add_argument("--no-requires-openai-auth", dest="requires_openai_auth", action="store_false")
     add.add_argument("--activate", action="store_true", help="also set model_provider and model")
     add.add_argument("--api-key", help="key used only with --write-auth")
-    add.add_argument("--write-auth", action="store_true", help="write API key to auth.json; otherwise no key is persisted")
+    add.add_argument("--write-auth", action="store_true", help="save this provider's key locally; copy it to auth.json only when activated")
     add.set_defaults(func=command_add)
 
     use = subparsers.add_parser("use", help="switch the active provider; use 'openai' for official Cookie/ChatGPT login")
     use.add_argument("provider_id")
     use.add_argument("--model", help="override the top-level model")
+    use.add_argument("--api-key", help="submit this relay key to Codex's official API-key login")
+    use.add_argument("--restore-official-identity", action="store_true", help="repair old official chats by restoring their original openai identity")
     use.set_defaults(func=command_use)
 
     login = subparsers.add_parser("login", help="start the official Codex ChatGPT/Cookie login flow")

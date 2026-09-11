@@ -299,7 +299,7 @@ class CodexProviderToolTests(unittest.TestCase):
         data = tomllib.loads(updated)
 
         self.assertEqual(active_id, MODULE.OFFICIAL_PROVIDER_ID)
-        self.assertFalse(preserved)
+        self.assertTrue(preserved)
         self.assertEqual(data["model_provider"], MODULE.OFFICIAL_PROVIDER_ID)
         self.assertNotIn("openai_base_url", data)
         self.assertEqual(data["service_tier"], "fast")
@@ -334,7 +334,7 @@ class CodexProviderToolTests(unittest.TestCase):
 
     def test_switch_rejects_missing_current_profile_without_changing_identity(self):
         text = (
-            'model_provider = "openai"\nmodel = "gpt-5.5"\n\n'
+            'model_provider = "missing"\nmodel = "gpt-5.5"\n\n'
             '[model_providers.relay]\nname = "Relay"\nbase_url = "https://relay.example/v1"\n'
         )
         import tomllib
