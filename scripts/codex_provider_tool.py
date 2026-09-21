@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -581,8 +582,63 @@ def atomic_write_bytes(path: Path, content: bytes) -> None:
 
 
 def latest_backup(path: Path, label: str) -> Path | None:
-    matches = sorted(path.parent.glob(f"{path.name}.bak-{label}-*"), key=lambda item: item.stat().st_mtime, reverse=True)
+    # backup_file() uses copy2(), which preserves the source mtime.  The fixed-width
+    # timestamp in the filename is therefore the reliable ordering key.
+    matches = sorted(path.parent.glob(f"{path.name}.bak-{label}-*"), key=lambda item: item.name, reverse=True)
     return matches[0] if matches else None
+
+
+def relay_auth_backup_label(provider: Provider) -> str:
+    material = "\n".join((provider.name.strip(), normalize_base_url(provider.base_url)))
+    digest = hashlib.sha256(material.encode("utf-8")).hexdigest()[:24]
+    return f"provider-tool-relay-profile-{digest}"
+
+
+def latest_relay_auth_backup(home: Path, provider: Provider, allow_legacy: bool = False) -> Path | None:
+    auth_path = home / "auth.json"
+    profile_backup = latest_backup(auth_path, relay_auth_backup_label(provider))
+    if profile_backup or not allow_legacy:
+        return profile_backup
+    # Before profile-bound snapshots existed, built-in openai routing stored keys
+    # under the provider table ID.  That remains safe only for this non-swapping
+    # route; custom stable identities may have exchanged those table IDs already.
+    return latest_backup(auth_path, f"provider-tool-relay-{provider.provider_id}")
+
+
+def saved_relay_api_key(home: Path, provider: Provider, allow_legacy: bool = False) -> str | None:
+    snapshot = latest_relay_auth_backup(home, provider, allow_legacy=allow_legacy)
+    if not snapshot:
+        return None
+    key = read_json(snapshot).get("OPENAI_API_KEY")
+    return key if isinstance(key, str) and key else None
+
+
+def save_relay_api_key(home: Path, provider: Provider, api_key: str) -> Path:
+    auth_path = home / "auth.json"
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+    snapshot = auth_path.with_name(f"{auth_path.name}.bak-{relay_auth_backup_label(provider)}-{stamp}")
+    atomic_write(snapshot, json.dumps({"auth_mode": "apikey", "OPENAI_API_KEY": api_key}) + "\n")
+    try:
+        snapshot.chmod(0o600)
+    except OSError:
+        pass
+    return snapshot
+
+
+def provider_has_own_credentials(data: dict[str, Any], provider_id: str) -> bool:
+    raw_providers = data.get("model_providers") or {}
+    raw = raw_providers.get(provider_id) if isinstance(raw_providers, dict) else None
+    if not isinstance(raw, dict):
+        return False
+    return any(raw.get(key) for key in ("auth", "env_key", "experimental_bearer_token"))
+
+
+def provider_uses_global_api_key(data: dict[str, Any], provider: Provider) -> bool:
+    return (
+        not provider.official
+        and provider.requires_openai_auth
+        and not provider_has_own_credentials(data, provider.provider_id)
+    )
 
 
 def native_codex_executable() -> str:
@@ -624,6 +680,7 @@ def activate_provider(
 ) -> tuple[str, list[Path]]:
     text, data = read_config(home / "config.toml")
     target = find_provider(data, provider_id)
+    active = find_provider(data, None)
     switch_data = data
     if restore_official_identity:
         # Explicit repair for older releases that changed implicit openai to a new ID.
@@ -636,7 +693,6 @@ def activate_provider(
     before_auth = auth_path.read_bytes() if auth_path.is_file() else None
     backups: list[Path] = []
     if target.official:
-        active = find_provider(data, None)
         if active.official and not data.get("openai_base_url"):
             return active_id, backups
         official_auth = latest_backup(auth_path, OFFICIAL_AUTH_BACKUP_LABEL)
@@ -648,9 +704,9 @@ def activate_provider(
                 atomic_write(config_path, updated)
                 return active_id, backups
             raise ToolError("找不到官方 Cookie 登录备份；请先点击“官方登录”重新登录。")
-        active_backup = backup_file(auth_path, f"provider-tool-relay-{active.provider_id}")
-        if active_backup:
-            backups.append(active_backup)
+        active_key = read_json(auth_path).get("OPENAI_API_KEY")
+        if provider_uses_global_api_key(data, active) and isinstance(active_key, str) and active_key:
+            backups.append(save_relay_api_key(home, active, active_key))
         config_backup = backup_file(config_path, "provider-tool")
         if config_backup:
             backups.append(config_backup)
@@ -669,22 +725,35 @@ def activate_provider(
             raise
         return active_id, backups
 
-    # A pre-existing custom session identity can exchange complete provider tables,
-    # including its own auth helper. The built-in openai identity instead requires
-    # Codex's supported API-key login for the openai_base_url override.
-    if active_id != OFFICIAL_PROVIDER_ID:
+    # Providers with an auth helper, env key, static bearer token, or no auth
+    # requirement carry their own credential behavior inside the exchanged table.
+    needs_api_key_login = target.requires_openai_auth and not provider_has_own_credentials(data, provider_id)
+    if not needs_api_key_login:
         config_backup = backup_file(config_path, "provider-tool")
         if config_backup:
             backups.append(config_backup)
         atomic_write(config_path, updated)
         return active_id, backups
 
-    relay_auth = latest_backup(auth_path, f"provider-tool-relay-{provider_id}")
-    stored_key = read_json(relay_auth).get("OPENAI_API_KEY") if relay_auth else None
-    key = api_key or stored_key or read_json(auth_path).get("OPENAI_API_KEY")
-    if not isinstance(key, str) or not key:
-        raise ToolError("该中转站没有可用 API Key；请在编辑供应商中填写 API Key 后保存。")
     current_auth = read_json(auth_path)
+    current_key = current_auth.get("OPENAI_API_KEY")
+    active_uses_global_key = provider_uses_global_api_key(data, active)
+    same_profile = (
+        active_uses_global_key
+        and relay_auth_backup_label(active) == relay_auth_backup_label(target)
+    )
+    key = api_key or saved_relay_api_key(
+        home, target, allow_legacy=(active_id == OFFICIAL_PROVIDER_ID)
+    )
+    if not key and same_profile and isinstance(current_key, str):
+        key = current_key
+    if not isinstance(key, str) or not key:
+        raise ToolError(
+            "该中转站没有自己保存的 API Key；为防止误用当前中转站的 Key，"
+            "请在编辑供应商中填写 API Key 后保存并启用。"
+        )
+    if active_uses_global_key and isinstance(current_key, str) and current_key:
+        backups.append(save_relay_api_key(home, active, current_key))
     if current_auth.get("tokens"):
         official_backup = backup_file(auth_path, OFFICIAL_AUTH_BACKUP_LABEL)
         if official_backup:
@@ -696,6 +765,10 @@ def activate_provider(
         atomic_write(config_path, updated)
         # Let Codex create its own supported API-key credential representation.
         codex_login_with_api_key(home, key)
+        activated_key = read_json(auth_path).get("OPENAI_API_KEY")
+        if not isinstance(activated_key, str) or activated_key != key:
+            raise ToolError("Codex API-key login completed without activating the selected provider Key")
+        backups.append(save_relay_api_key(home, target, activated_key))
     except Exception:
         if before_config is None:
             config_path.unlink(missing_ok=True)

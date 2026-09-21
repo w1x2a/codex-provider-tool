@@ -90,7 +90,7 @@ class CodexProviderToolTests(unittest.TestCase):
             config.write_text(
                 'model_provider = "OpenAI"\nmodel = "old-model"\n\n'
                 '[model_providers.OpenAI]\nname = "OpenAI"\nbase_url = "https://old.example/v1"\n'
-                'wire_api = "responses"\nrequires_openai_auth = true\n\n'
+                'wire_api = "responses"\nrequires_openai_auth = false\n\n'
                 '[features]\ngoals = true\n',
                 encoding="utf-8",
             )
@@ -106,6 +106,7 @@ class CodexProviderToolTests(unittest.TestCase):
                     "relay-model",
                     "--label",
                     "Relay A",
+                    "--no-requires-openai-auth",
                     "--activate",
                 ]
             )
@@ -168,6 +169,7 @@ class CodexProviderToolTests(unittest.TestCase):
                     "https://relay.example",
                     "--model",
                     "new-model",
+                    "--no-requires-openai-auth",
                     "--activate",
                 ]
             )
@@ -366,8 +368,10 @@ class CodexProviderToolTests(unittest.TestCase):
             transcript.parent.mkdir()
             config.write_text(
                 'model_provider = "custom"\nmodel = "old-model"\n\n'
-                '[model_providers.custom]\nname = "Old"\nbase_url = "https://old.example/v1"\n\n'
-                '[model_providers.relay]\nname = "New"\nbase_url = "https://new.example/v1"\n',
+                '[model_providers.custom]\nname = "Old"\nbase_url = "https://old.example/v1"\n'
+                'requires_openai_auth = false\n\n'
+                '[model_providers.relay]\nname = "New"\nbase_url = "https://new.example/v1"\n'
+                'requires_openai_auth = false\n',
                 encoding="utf-8",
             )
             sqlite_file.write_bytes(b"sqlite-fixture")
@@ -391,7 +395,7 @@ class CodexProviderToolTests(unittest.TestCase):
                 'name = "Old relay"\n'
                 'base_url = "https://old.example/v1"\n'
                 'wire_api = "responses"\n'
-                'requires_openai_auth = true\n',
+                'requires_openai_auth = false\n',
                 encoding="utf-8",
             )
             args = MODULE.build_parser().parse_args(
@@ -406,6 +410,7 @@ class CodexProviderToolTests(unittest.TestCase):
                     "https://provider-b.example/v1",
                     "--model",
                     "relay-model",
+                    "--no-requires-openai-auth",
                     "--activate",
                 ]
             )
