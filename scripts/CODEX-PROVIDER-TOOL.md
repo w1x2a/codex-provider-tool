@@ -1,6 +1,6 @@
 # CLI 使用说明
 
-本说明对应 v1.0.8 源码与 Windows CLI。图形界面下载、功能概览和常见问题见 [项目 README](../README.md)。
+本说明对应 v1.0.9 源码与 Windows CLI。图形界面下载、功能概览和常见问题见 [项目 README](../README.md)。
 
 ## 入口与目录
 
@@ -81,7 +81,7 @@ python .\scripts\codex_provider_tool.py add relay_a --label "我的中转" --bas
 | `--requires-openai-auth` | 默认开启；已有内置 `openai` 路线需要保持开启 |
 | `--no-requires-openai-auth` | 自定义供应商选项，不适用于保持内置 `openai` 身份的中转路线 |
 | `--activate` | 保存后立即应用 |
-| `--api-key`、`--write-auth` | 显式认证操作；`--write-auth` 必须同时提供 Key 和 `--activate` |
+| `--api-key`、`--write-auth` | 显式保存该供应商专属 Key；可不带 `--activate`，此时不修改当前 `auth.json`，以后切换时再激活 |
 
 实际 Key 建议在 GUI 中填写。把真实 Key 直接放到命令参数里可能进入终端历史或进程参数；工具不输出原始 Key，不代表命令行本身没有泄露风险。
 

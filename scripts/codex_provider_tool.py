@@ -801,8 +801,6 @@ def upsert_provider(home: Path, args: argparse.Namespace) -> tuple[Path, list[Pa
     normalized_base_url = normalize_base_url(args.base_url)
     if args.write_auth and not args.api_key:
         raise ToolError("--write-auth requires --api-key")
-    if args.write_auth and not args.activate:
-        raise ToolError("API Key is applied only during activation so Codex can manage it safely; add --activate.")
     config_path = home / "config.toml"
     text, previous = read_config(config_path)
     values = {
@@ -828,9 +826,23 @@ def upsert_provider(home: Path, args: argparse.Namespace) -> tuple[Path, list[Pa
                 atomic_write_bytes(config_path, original)
             raise
         return config_path, ([backup] if backup else []) + activation_backups
+    original = config_path.read_bytes() if config_path.is_file() else None
     backup = backup_file(config_path, "provider-tool")
-    atomic_write(config_path, updated)
-    return config_path, [backup] if backup else []
+    credential_snapshot: Path | None = None
+    try:
+        atomic_write(config_path, updated)
+        if args.write_auth:
+            target = find_provider(updated_data, args.provider_id)
+            credential_snapshot = save_relay_api_key(home, target, args.api_key)
+    except Exception:
+        if credential_snapshot:
+            credential_snapshot.unlink(missing_ok=True)
+        if original is None:
+            config_path.unlink(missing_ok=True)
+        else:
+            atomic_write_bytes(config_path, original)
+        raise
+    return config_path, [item for item in (backup, credential_snapshot) if item]
 
 
 def print_check(home: Path, data: dict[str, Any], auth_source: str, auth_key: str | None) -> None:
@@ -913,8 +925,10 @@ def command_add(args: argparse.Namespace) -> int:
     print(f"Config: {config_path}")
     for backup in backups:
         print(f"Backup: {backup}")
-    if args.write_auth:
+    if args.write_auth and args.activate:
         print("API key was submitted to Codex for API-key login; the official ChatGPT login snapshot was backed up.")
+    elif args.write_auth:
+        print("API key was saved for this provider; Codex authentication was not switched.")
     if args.activate:
         _, active_data = read_config(config_path)
         active_id = str(active_data.get("model_provider") or args.provider_id)
@@ -988,7 +1002,10 @@ def build_parser() -> argparse.ArgumentParser:
     auth_group.add_argument("--no-requires-openai-auth", dest="requires_openai_auth", action="store_false")
     add.add_argument("--activate", action="store_true", help="also set model_provider and model")
     add.add_argument("--api-key", help="key used only with --write-auth")
-    add.add_argument("--write-auth", action="store_true", help="save this provider's key locally; copy it to auth.json only when activated")
+    add.add_argument(
+        "--write-auth", action="store_true",
+        help="save this provider's key locally; copy it to auth.json only when this provider is activated",
+    )
     add.set_defaults(func=command_add)
 
     use = subparsers.add_parser("use", help="switch the active provider; use 'openai' for official Cookie/ChatGPT login")

@@ -707,6 +707,8 @@ class ProviderApp:
                     self._log_status(f"已保存 {args.provider_id} · 已生成 {len(backups)} 个备份")
                 if args.activate:
                     self._log_status(f"{args.provider_id} 配置已保存 · 请完全退出并重新打开 Codex · 实际请求尚未验证")
+                elif args.write_auth:
+                    self._log_status(f"{args.provider_id} Key 已单独保存 · 当前 Codex 认证未切换")
             except Exception as exc:
                 messagebox.showerror("Codex Provider Tool", str(exc), parent=dialog)
 

@@ -2,7 +2,7 @@
 
 功能以对应版本源码为准，二进制支持平台以该版本 Release 附件为准。[全部发布版本](https://github.com/w1x2a/codex-provider-tool/releases)
 
-## 未发布 · 文档整理与认证隔离
+## [v1.0.9](https://github.com/w1x2a/codex-provider-tool/releases/tag/v1.0.9) · 认证隔离与 Key 预存
 
 - 中文化项目首页、CLI 和 Windows 包内说明，补充已发布的新功能与直接下载入口。
 - 补齐官方登录恢复、备份文件位置、重启生效要求及真实请求验证步骤。
@@ -11,7 +11,8 @@
 - 修复中转之间切换时可能沿用当前供应商 API Key 的问题；Key 快照改为按供应商名称与 Base URL 绑定。
 - 自定义稳定 `model_provider` 身份下，普通 API-key 供应商也会切换 Codex 登录认证；自带嵌套 `auth`、`env_key` 或静态令牌的配置仍按完整供应商表交换。
 - 登录没有实际落入目标 Key 时回滚配置与文件型认证，旧版按 Provider ID 保存的快照仅在不会交换表 ID 的内置 `openai` 路线兼容读取。
-- 已重新构建并验证本地 Windows 包；这里仍是未发布变更，不代表已经创建新的 GitHub Release。
+- 修复“保存供应商 Key”被错误强制要求立即启用的问题；现在可先保存供应商专属 Key，当前 Codex 认证保持不变，之后切换时再交给 Codex 激活。
+- 已重新构建并验证 Windows 包；本版仍只发布 Windows 附件。
 
 ## [v1.0.8](https://github.com/w1x2a/codex-provider-tool/releases/tag/v1.0.8) · 中转模型选择
 
@@ -44,4 +45,4 @@
 
 ## 发布边界
 
-v1.0.5–v1.0.8 发布的是重新构建的 Windows 产物；不要把历史 Linux 附件视为这些版本。上述工具功能均不编辑 Codex SQLite、会话 JSONL 或聊天正文；单机历史索引修复、个人模型目录配置和服务端网关调整没有打包进本工具。
+v1.0.5–v1.0.9 发布的是重新构建的 Windows 产物；不要把历史 Linux 附件视为这些版本。上述工具功能均不编辑 Codex SQLite、会话 JSONL 或聊天正文；单机历史索引修复、个人模型目录配置和服务端网关调整没有打包进本工具。

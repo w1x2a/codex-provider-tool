@@ -1,4 +1,5 @@
 """Regression tests for built-in OpenAI relay routing and login restoration."""
+import io
 import json
 import os
 import tempfile
@@ -63,6 +64,44 @@ class ProviderAuthSwitchingTests(unittest.TestCase):
         with self.assertRaisesRegex(tool.ToolError, "API Key"):
             tool.activate_provider(self.home, "relay_a")
         self.assertEqual((self.config.read_bytes(), self.auth.read_bytes()), before)
+
+    def test_key_can_be_saved_without_activation_and_used_later(self):
+        before_auth = self.auth.read_bytes()
+        args = tool.build_parser().parse_args([
+            "--codex-home", str(self.home), "add", "relay_a",
+            "--base-url", "https://relay.example/v1", "--model", "test-model",
+            "--api-key", "relay-a-key", "--write-auth",
+        ])
+
+        _, backups = tool.upsert_provider(self.home, args)
+
+        data = tomllib.loads(self.config.read_text(encoding="utf-8"))
+        provider = tool.find_provider(data, "relay_a")
+        self.assertNotIn("model_provider", data)
+        self.assertEqual(self.auth.read_bytes(), before_auth)
+        self.assertEqual(tool.saved_relay_api_key(self.home, provider), "relay-a-key")
+        self.assertEqual(len(backups), 2)
+        self.mock_login.assert_not_called()
+
+        tool.activate_provider(self.home, "relay_a")
+
+        self.assertEqual(json.loads(self.auth.read_text(encoding="utf-8"))["OPENAI_API_KEY"], "relay-a-key")
+        self.mock_login.assert_called_once_with(self.home, "relay-a-key")
+
+    def test_key_save_without_activation_reports_auth_unchanged(self):
+        args = tool.build_parser().parse_args([
+            "--codex-home", str(self.home), "add", "relay_a",
+            "--base-url", "https://relay.example/v1", "--model", "test-model",
+            "--api-key", "relay-a-key", "--write-auth",
+        ])
+
+        with mock.patch("sys.stdout", new_callable=io.StringIO) as output:
+            result = tool.command_add(args)
+
+        self.assertEqual(result, 0)
+        self.assertIn("Codex authentication was not switched", output.getvalue())
+        self.assertNotIn("submitted to Codex", output.getvalue())
+        self.mock_login.assert_not_called()
 
     def test_direct_relay_switch_never_reuses_current_provider_key(self):
         self.add_and_activate("relay_a", "relay-a-key")

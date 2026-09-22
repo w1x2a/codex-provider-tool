@@ -1,6 +1,6 @@
 # Codex Provider Tool · Linux x64 说明
 
-仓库提供 Linux x86_64 构建脚本，但 **v1.0.8 Release 没有重新构建的 Linux 附件**。历史 Linux 包不能视为包含本版全部功能。
+仓库提供 Linux x86_64 构建脚本，但 **v1.0.9 Release 没有重新构建的 Linux 附件**。历史 Linux 包不能视为包含本版全部功能。
 
 本页供从对应源码自行构建后的使用参考，不代表本次已完成 Linux 图形界面或真实中转验证。
 

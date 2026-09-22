@@ -4,22 +4,22 @@
 
 普通切换保持活动 `model_provider` 会话标识不变，减少因 Provider ID 改变导致旧聊天不可见的问题。工具不编辑 Codex SQLite、会话 JSONL 或聊天正文，也不提供通用聊天记录修复功能。
 
-[下载 Windows EXE](https://github.com/w1x2a/codex-provider-tool/releases/download/v1.0.8/CodexProviderTool.exe) · [下载完整 ZIP](https://github.com/w1x2a/codex-provider-tool/releases/download/v1.0.8/CodexProviderTool-windows-x64.zip) · [所有版本](https://github.com/w1x2a/codex-provider-tool/releases) · [更新记录](CHANGELOG.md)
+[下载 Windows EXE](https://github.com/w1x2a/codex-provider-tool/releases/download/v1.0.9/CodexProviderTool.exe) · [下载完整 ZIP](https://github.com/w1x2a/codex-provider-tool/releases/download/v1.0.9/CodexProviderTool-windows-x64.zip) · [所有版本](https://github.com/w1x2a/codex-provider-tool/releases) · [更新记录](CHANGELOG.md)
 
 ## 下载与运行
 
-下载链接固定到当前已发布版本 **v1.0.8**；`main` 分支还可能包含尚未创建 Release 的修复，具体见[更新记录](CHANGELOG.md)。
+下载链接固定到当前已发布版本 **v1.0.9**；`main` 分支还可能包含尚未创建 Release 的修复，具体见[更新记录](CHANGELOG.md)。
 
 | 文件 | 用途 |
 | --- | --- |
-| [CodexProviderTool.exe](https://github.com/w1x2a/codex-provider-tool/releases/download/v1.0.8/CodexProviderTool.exe) | 图形界面，下载后双击，无需安装 Python |
-| [CodexProviderTool-cli.exe](https://github.com/w1x2a/codex-provider-tool/releases/download/v1.0.8/CodexProviderTool-cli.exe) | 命令行检查、切换和模型设置 |
-| [CodexProviderTool-windows-x64.zip](https://github.com/w1x2a/codex-provider-tool/releases/download/v1.0.8/CodexProviderTool-windows-x64.zip) | GUI、CLI、PowerShell 包装脚本、说明与校验文件 |
-| [SHA256SUMS.txt](https://github.com/w1x2a/codex-provider-tool/releases/download/v1.0.8/SHA256SUMS.txt) | 对照检查 EXE 的 SHA-256 |
+| [CodexProviderTool.exe](https://github.com/w1x2a/codex-provider-tool/releases/download/v1.0.9/CodexProviderTool.exe) | 图形界面，下载后双击，无需安装 Python |
+| [CodexProviderTool-cli.exe](https://github.com/w1x2a/codex-provider-tool/releases/download/v1.0.9/CodexProviderTool-cli.exe) | 命令行检查、切换和模型设置 |
+| [CodexProviderTool-windows-x64.zip](https://github.com/w1x2a/codex-provider-tool/releases/download/v1.0.9/CodexProviderTool-windows-x64.zip) | GUI、CLI、PowerShell 包装脚本、说明与校验文件 |
+| [SHA256SUMS.txt](https://github.com/w1x2a/codex-provider-tool/releases/download/v1.0.9/SHA256SUMS.txt) | 对照检查 EXE 的 SHA-256 |
 
 要求：Windows x64。工具可以查看配置，但官方登录与中转 API-key 登录仍需要可用的 Codex CLI；Windows 的“官方登录”还需要 PowerShell 7，且 `codex`、`pwsh` 可从 PATH 找到。
 
-本版发布附件只有 Windows 产物。仓库保留 Linux 构建脚本，但旧 Linux 包不包含本版全部新功能，不能当作 v1.0.8 使用。
+本版发布附件只有 Windows 产物。仓库保留 Linux 构建脚本，但旧 Linux 包不包含本版全部新功能，不能当作 v1.0.9 使用。
 
 ## 新功能一览
 
@@ -40,7 +40,7 @@
 ## 三步接入中转
 
 1. 打开工具，确认顶部 Codex 配置目录指向实际使用的目录。
-2. 点击“添加供应商”，填写 Provider ID、名称、Base URL、Model 和中转 API Key。使用已有官方 `openai` 身份时，保留 `responses` 和“需要 OpenAI auth”，勾选保存 Key、保存后立即启用。
+2. 点击“添加供应商”，填写 Provider ID、名称、Base URL、Model 和中转 API Key。使用已有官方 `openai` 身份时，保留 `responses` 和“需要 OpenAI auth”。可以只勾选保存 Key，稍后切换；需要立刻应用时再勾选“保存后立即启用”。
 3. 保存后，等正在运行的任务结束，**完全退出 Codex（包括后台进程），再重新打开**。发送一条测试消息，同时核对中转后台请求日志。
 
 Provider ID 使用字母、数字、下划线或连字符，例如 `relay_a`；不要用内置保留 ID `openai` 创建中转。
@@ -60,7 +60,7 @@ Base URL 缺少 `/v1` 时会自动补齐，重复的 `/v1/v1/` 会合并。建�
 
 这里有两个列表：**本工具显示的中转 `/models` 列表**，以及 **Codex 桌面端自己的模型菜单**。
 
-v1.0.8 负责获取前者和写入顶层 `model`，没有实现桌面模型目录的自动同步，也不会自动配置 `model_catalog_json`。因此不能承诺中转返回的每个模型都会出现在 Codex 菜单里，或已有任务都会自动换模型。
+自 v1.0.8 起，工具负责获取前者和写入顶层 `model`，没有实现桌面模型目录的自动同步，也不会自动配置 `model_catalog_json`。因此不能承诺中转返回的每个模型都会出现在 Codex 菜单里，或已有任务都会自动换模型。
 
 若重启后仍缺少模型，需要单独核对当前 Codex 的模型目录、菜单筛选和任务设置。某台电脑单独配置的模型目录不属于本 EXE 的内置功能；不要为了补菜单而修改聊天数据库或 JSONL。
 
@@ -96,7 +96,7 @@ v1.0.8 负责获取前者和写入顶层 `model`，没有实现桌面模型目�
 | --- | --- |
 | 切换后中转后台没有请求 | 配置目录是否正确、是否完整退出并重开、当前任务是否已加载新路由；再用真实回复请求核对日志 |
 | `/models` 返回 401/403 | API Key、授权范围以及是否选错中转；以返回的真实错误为准 |
-| 提示目标中转没有自己的 Key | 编辑该供应商，重新填写它自己的 API Key 并保存启用；工具不会复用另一个中转的 Key |
+| 提示目标中转没有自己的 Key | 编辑该供应商，重新填写它自己的 API Key 并勾选保存；可立即启用，也可稍后切换，工具不会复用另一个中转的 Key |
 | `/models` 返回 404 | Base URL 与中转是否提供该接口；不能直接据此判断回复接口一定不可用 |
 | “重新连接 5/5”或流提前断开 | 检查中转 Responses/WebSocket 支持和网关日志；模型列表可访问不能证明流式链路正常 |
 | 提示找不到官方登录备份 | 使用“官方登录”重新登录，再应用官方配置 |
