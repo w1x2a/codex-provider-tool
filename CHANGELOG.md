@@ -1,5 +1,10 @@
 # 更新记录
 
+## [v1.0.10](https://github.com/w1x2a/codex-provider-tool/releases/tag/v1.0.10) · 默认上下文
+
+- 主界面增加「默认上下文」设置，支持 tokens 正整数校验、保存回显和恢复模型默认值。
+- CLI 增加 `context --tokens 200000` 与 `context --reset`。仅修改顶层 `model_context_window`，修改前备份。
+
 功能以对应版本源码为准，二进制支持平台以该版本 Release 附件为准。[全部发布版本](https://github.com/w1x2a/codex-provider-tool/releases)
 
 ## [v1.0.9](https://github.com/w1x2a/codex-provider-tool/releases/tag/v1.0.9) · 认证隔离与 Key 预存
@@ -45,4 +50,4 @@
 
 ## 发布边界
 
-v1.0.5–v1.0.9 发布的是重新构建的 Windows 产物；不要把历史 Linux 附件视为这些版本。上述工具功能均不编辑 Codex SQLite、会话 JSONL 或聊天正文；单机历史索引修复、个人模型目录配置和服务端网关调整没有打包进本工具。
+v1.0.5–v1.0.10 发布的是重新构建的 Windows 产物；不要把历史 Linux 附件视为这些版本。上述工具功能均不编辑 Codex SQLite、会话 JSONL 或聊天正文；单机历史索引修复、个人模型目录配置和服务端网关调整没有打包进本工具。

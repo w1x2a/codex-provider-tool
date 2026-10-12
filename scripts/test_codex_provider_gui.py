@@ -44,6 +44,37 @@ def descendants(widget):
 
 
 class ProviderGuiTests(unittest.TestCase):
+    def test_context_dialog_validation_save_reopen_and_reset(self):
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                with mock.patch.object(GUI, "resolve_codex_home", return_value=Path(directory)):
+                    app = ProviderApp(root)
+                app.open_context_dialog()
+                dialog = next(w for w in root.winfo_children() if isinstance(w, tk.Toplevel))
+                widgets = list(descendants(dialog))
+                entry = next(w for w in widgets if isinstance(w, tk.Entry))
+                save = next(w for w in widgets if isinstance(w, tk.Button) and w.cget("text") == "保存")
+                entry.insert(0, "-1")
+                save.invoke()
+                self.assertTrue(dialog.winfo_exists())
+                self.assertFalse((Path(directory) / "config.toml").exists())
+                entry.delete(0, "end")
+                entry.insert(0, "200000")
+                save.invoke()
+                self.assertIn("200,000", app.context_var.get())
+                app.open_context_dialog()
+                dialog = next(w for w in root.winfo_children() if isinstance(w, tk.Toplevel))
+                widgets = list(descendants(dialog))
+                self.assertEqual(next(w for w in widgets if isinstance(w, tk.Entry)).get(), "200000")
+                next(w for w in widgets if isinstance(w, tk.Button) and w.cget("text") == "恢复默认").invoke()
+                next(w for w in widgets if isinstance(w, tk.Button) and w.cget("text") == "保存").invoke()
+                self.assertIn("模型默认", app.context_var.get())
+                self.assertNotIn("model_context_window", (Path(directory) / "config.toml").read_text(encoding="utf-8"))
+        finally:
+            root.destroy()
+
     def test_add_provider_dialog_is_centered_over_main_window(self):
         root = tk.Tk()
         try:

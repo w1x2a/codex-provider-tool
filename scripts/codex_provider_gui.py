@@ -31,6 +31,7 @@ from codex_provider_tool import (
     resolve_codex_home,
     safe_url,
     set_active_model,
+    set_context_window,
     upsert_provider,
 )
 
@@ -76,6 +77,7 @@ class ProviderApp:
         self.home_var = tk.StringVar(value=str(resolve_codex_home(None)))
         self.current_banner_var = tk.StringVar(value="正在读取 Codex 配置...")
         self.status_var = tk.StringVar(value="就绪")
+        self.context_var = tk.StringVar(value="默认上下文：模型默认")
         self.providers: dict[str, Any] = {}
         self.probe_state: dict[str, tuple[str, str]] = {}
         self.card_canvas: tk.Canvas
@@ -128,6 +130,8 @@ class ProviderApp:
         tk.Label(settings, textvariable=self.home_var, bg=BG, fg="#718198", font=("Consolas", 9), anchor="w").grid(row=0, column=1, padx=10, sticky="ew")
         self._button(settings, "选择目录", self.choose_home, "#263449", "#334661", width=10).grid(row=0, column=2, sticky="e")
         tk.Label(settings, textvariable=self.status_var, bg=BG, fg=GREEN, font=("Segoe UI", 9)).grid(row=0, column=3, padx=(18, 0), sticky="e")
+        tk.Label(settings, textvariable=self.context_var, bg=BG, fg=MUTED, font=("Microsoft YaHei UI", 9)).grid(row=1, column=0, columnspan=2, pady=(8, 5), sticky="w")
+        self._button(settings, "默认上下文", self.open_context_dialog, "#263449", "#334661", width=10).grid(row=1, column=2, pady=(8, 5), sticky="e")
 
         list_frame = tk.Frame(page, bg=BG)
         list_frame.grid(row=3, column=0, sticky="nsew")
@@ -198,6 +202,49 @@ class ProviderApp:
         x = max(virtual_x, min(x, virtual_x + virtual_width - width))
         y = max(virtual_y, min(y, virtual_y + virtual_height - height))
         dialog.geometry(f"{width}x{height}+{x}+{y}")
+
+    def open_context_dialog(self) -> None:
+        target_home = self.home_path()
+        try:
+            _, data = read_config(target_home / "config.toml")
+        except Exception as exc:
+            self.show_error(exc)
+            return
+        dialog = tk.Toplevel(self.root)
+        dialog.title("默认上下文")
+        dialog.configure(bg=BG)
+        dialog.transient(self.root)
+        dialog.grab_set()
+        body = tk.Frame(dialog, bg=BG, padx=24, pady=22)
+        body.pack(fill="both", expand=True)
+        tk.Label(body, text="默认上下文窗口", bg=BG, fg=TEXT, font=("Microsoft YaHei UI", 16, "bold")).pack(anchor="w")
+        tk.Label(body, text="单位：tokens。留空表示使用模型默认值。", bg=BG, fg=MUTED).pack(anchor="w", pady=(8, 8))
+        value = tk.StringVar(value=str(data.get("model_context_window", "")))
+        entry = tk.Entry(body, name="context_tokens", textvariable=value, bg=SURFACE, fg=TEXT, insertbackground=TEXT, font=("Segoe UI", 12))
+        entry.pack(fill="x", ipady=7)
+        tk.Label(body, text="适用于当前 Codex Home 的全局默认配置。请按模型实际支持的上限填写，\n此设置不会扩展模型能力；项目或启动参数可能覆盖它。\n保存前自动备份，保存后请完全退出并重新打开 Codex。", bg=BG, fg=MUTED, justify="left", wraplength=470).pack(anchor="w", pady=(12, 4))
+        error = tk.StringVar()
+        tk.Label(body, textvariable=error, bg=BG, fg=RED, justify="left", wraplength=470).pack(anchor="w", pady=(4, 8))
+
+        def save() -> None:
+            try:
+                backup = set_context_window(target_home, value.get())
+            except Exception as exc:
+                error.set(str(exc))
+                entry.focus_set()
+                return
+            dialog.destroy()
+            self.refresh()
+            suffix = f" · 备份：{backup.name}" if backup else ""
+            self._log_status(f"默认上下文已保存{suffix} · 请完全退出并重新打开 Codex")
+
+        controls = tk.Frame(body, bg=BG)
+        controls.pack(fill="x")
+        self._button(controls, "恢复默认", lambda: value.set(""), "#263449", "#334661").pack(side="left")
+        self._button(controls, "保存", save, PURPLE, "#8274ff").pack(side="right")
+        self._button(controls, "取消", dialog.destroy, "#263449", "#334661").pack(side="right", padx=8)
+        self._center_dialog(dialog, 540)
+        entry.focus_set()
 
     def open_codex_download_dialog(self) -> None:
         dialog = tk.Toplevel(self.root)
@@ -297,6 +344,8 @@ class ProviderApp:
                     raise
                 _, data = read_config(config_path)
             providers = get_providers(data)
+            context = data.get("model_context_window")
+            self.context_var.set(f"默认上下文：{context:,} tokens" if isinstance(context, int) else "默认上下文：模型默认")
             self.providers = {provider.provider_id: provider for provider in providers}
             current = next((provider for provider in providers if provider.current), None)
             if current:

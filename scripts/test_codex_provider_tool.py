@@ -35,6 +35,37 @@ class ModelHandler(BaseHTTPRequestHandler):
 
 
 class CodexProviderToolTests(unittest.TestCase):
+    def test_context_window_save_reset_preserves_other_settings_and_auth(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            config = home / "config.toml"
+            original = ('# keep comment\nmodel_provider = "custom"\nmodel = "test"\n'
+                        'model_auto_compact_token_limit = 150000\n'
+                        '[model_providers.custom]\nname = "Relay"\n'
+                        'base_url = "https://relay.invalid/v1"\n'
+                        '[profiles.work]\nmodel_context_window = 32000\n')
+            config.write_text(original, encoding="utf-8")
+            auth = home / "auth.json"
+            auth.write_bytes(b"unchanged auth fixture")
+            backup = MODULE.set_context_window(home, "200000")
+            self.assertEqual(backup.read_text(encoding="utf-8"), original)
+            _, data = MODULE.read_config(config)
+            self.assertEqual(data["model_context_window"], 200000)
+            self.assertEqual(data["profiles"]["work"]["model_context_window"], 32000)
+            self.assertEqual(data["model_provider"], "custom")
+            self.assertEqual(data["model_auto_compact_token_limit"], 150000)
+            MODULE.set_context_window(home, "")
+            self.assertEqual(config.read_text(encoding="utf-8"), original)
+            self.assertEqual(auth.read_bytes(), b"unchanged auth fixture")
+
+    def test_context_window_invalid_input_does_not_write_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            for invalid in ("0", "-1", "1.5", "200k", "abc", str(2**63)):
+                with self.subTest(invalid=invalid), self.assertRaises(MODULE.ToolError):
+                    MODULE.set_context_window(home, invalid)
+            self.assertEqual(list(home.iterdir()), [])
+
     def test_explicit_codex_home_is_used_even_when_empty(self):
         with tempfile.TemporaryDirectory() as directory:
             self.assertEqual(MODULE.resolve_codex_home(directory), Path(directory))

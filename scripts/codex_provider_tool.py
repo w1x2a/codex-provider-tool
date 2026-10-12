@@ -782,6 +782,23 @@ def activate_provider(
     return active_id, backups
 
 
+def set_context_window(home: Path, value: str) -> Path | None:
+    selected = value.strip()
+    if selected and (not re.fullmatch(r"[0-9]+", selected) or not 1 <= int(selected) <= 2**63 - 1):
+        raise ToolError("默认上下文必须为正整数（tokens）；留空可恢复模型默认值。")
+    config_path = home / "config.toml"
+    text, _ = read_config(config_path)
+    updated = (
+        set_top_level_value(text, "model_context_window", str(int(selected)))
+        if selected else remove_top_level_value(text, "model_context_window")
+    )
+    if updated == text:
+        return None
+    backup = backup_file(config_path, "provider-tool")
+    atomic_write(config_path, updated)
+    return backup
+
+
 def set_active_model(home: Path, model: str) -> Path | None:
     selected = model.strip()
     if not selected:
@@ -966,6 +983,17 @@ def command_model(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_context(args: argparse.Namespace) -> int:
+    home = resolve_codex_home(args.codex_home)
+    backup = set_context_window(home, "" if args.reset else args.tokens)
+    _, data = read_config(home / "config.toml")
+    print(f"Context window: {data.get('model_context_window', 'model default')}")
+    if backup:
+        print(f"Backup: {backup}")
+    print("Restart Codex to reload the context setting.")
+    return 0
+
+
 def command_login(args: argparse.Namespace) -> int:
     home = resolve_codex_home(args.codex_home)
     process = launch_codex_login(home, new_console=False)
@@ -1018,6 +1046,12 @@ def build_parser() -> argparse.ArgumentParser:
     model = subparsers.add_parser("model", help="set the top-level model without changing provider identity")
     model.add_argument("model")
     model.set_defaults(func=command_model)
+
+    context = subparsers.add_parser("context", help="set the default context window in tokens")
+    context_value = context.add_mutually_exclusive_group(required=True)
+    context_value.add_argument("--tokens", help="positive integer context window size")
+    context_value.add_argument("--reset", action="store_true", help="restore model default")
+    context.set_defaults(func=command_context)
 
     login = subparsers.add_parser("login", help="start the official Codex ChatGPT/Cookie login flow")
     login.set_defaults(func=command_login)

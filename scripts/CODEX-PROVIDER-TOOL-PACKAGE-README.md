@@ -4,7 +4,9 @@ Windows x64 便携工具，不绑定任何中转站，不需要安装 Python。�
 
 [项目说明](https://github.com/w1x2a/codex-provider-tool) · [版本下载](https://github.com/w1x2a/codex-provider-tool/releases)
 
-## 当前构建功能（v1.0.9）
+## 当前构建功能（v1.0.10）
+
+- 主界面 Codex Home 下方新增「默认上下文」：填写正整数 tokens，保存前自动备份；留空或「恢复默认」后保存可使用模型默认值。保存后重启 Codex，不改变 Key、供应商或自动压缩阈值。填写值不能扩展模型实际能力。
 
 - 当前中转卡片的“模型”按钮：获取中转完整 `/models` 列表，应用所选模型。
 - 保留当前可用模型；需要推荐新模型时优先考虑 `gpt-6-astra`、`gpt-6`，支持手动输入真实中转模型 ID。
