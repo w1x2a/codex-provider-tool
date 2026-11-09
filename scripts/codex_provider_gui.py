@@ -137,16 +137,46 @@ class ProviderApp:
         list_frame.grid(row=3, column=0, sticky="nsew")
         list_frame.rowconfigure(0, weight=1)
         list_frame.columnconfigure(0, weight=1)
-        self.card_canvas = tk.Canvas(list_frame, bg=BG, highlightthickness=0, bd=0)
+        self.card_canvas = tk.Canvas(list_frame, bg=BG, highlightthickness=0, bd=0, yscrollincrement=24)
         self.card_canvas.grid(row=0, column=0, sticky="nsew")
-        scrollbar = tk.Scrollbar(list_frame, orient="vertical", command=self.card_canvas.yview, bg=BG, troughcolor=BG, activebackground="#34445d", relief="flat", bd=0)
-        scrollbar.grid(row=0, column=1, sticky="ns")
-        self.card_canvas.configure(yscrollcommand=scrollbar.set)
+        self.card_scrollbar = ttk.Scrollbar(
+            list_frame, orient="vertical", command=self.card_canvas.yview, style=self._dark_scrollbar_style(),
+        )
+        self.card_scrollbar.grid(row=0, column=1, sticky="ns", padx=(6, 0))
+        self.card_canvas.configure(yscrollcommand=self._update_card_scrollbar)
         self.card_inner = tk.Frame(self.card_canvas, bg=BG)
         self.card_window = self.card_canvas.create_window((0, 0), window=self.card_inner, anchor="nw")
         self.card_inner.bind("<Configure>", lambda _event: self.card_canvas.configure(scrollregion=self.card_canvas.bbox("all")))
         self.card_canvas.bind("<Configure>", lambda event: self.card_canvas.itemconfigure(self.card_window, width=event.width))
-        self.card_canvas.bind("<MouseWheel>", self._scroll_cards)
+        # The wheel must work while the pointer is over any card, not only the bare canvas.
+        self.card_list_frame = list_frame
+        self.root.bind_all("<MouseWheel>", self._scroll_cards, add="+")
+
+    def _dark_scrollbar_style(self) -> str:
+        style = ttk.Style(self.root)
+        name = "Dark.Vertical.TScrollbar"
+        try:
+            # Native Windows scrollbars ignore colors; borrow clam's elements so the bar can be themed.
+            style.element_create("Dark.Vertical.Scrollbar.trough", "from", "clam")
+            style.element_create("Dark.Vertical.Scrollbar.thumb", "from", "clam")
+            style.layout(name, [("Dark.Vertical.Scrollbar.trough", {"sticky": "ns", "children": [
+                ("Dark.Vertical.Scrollbar.thumb", {"expand": "1", "sticky": "nswe"}),
+            ]})])
+        except tk.TclError:
+            pass
+        style.configure(name, troughcolor=BG, background="#34445d", bordercolor=BG,
+                        lightcolor="#34445d", darkcolor="#34445d", gripcount=0, arrowsize=10, width=10)
+        style.map(name, background=[("pressed", "#5a7194"), ("active", "#4a5f80")],
+                  lightcolor=[("pressed", "#5a7194"), ("active", "#4a5f80")],
+                  darkcolor=[("pressed", "#5a7194"), ("active", "#4a5f80")])
+        return name
+
+    def _update_card_scrollbar(self, first: str, last: str) -> None:
+        self.card_scrollbar.set(first, last)
+        if float(first) <= 0.0 and float(last) >= 1.0:
+            self.card_scrollbar.grid_remove()
+        else:
+            self.card_scrollbar.grid()
 
     def _button(self, parent: tk.Widget, text: str, command: Any, color: str, hover: str, width: int | None = None) -> tk.Button:
         button = tk.Button(
@@ -170,8 +200,25 @@ class ProviderApp:
         button.bind("<Leave>", lambda _event: button.configure(bg=color))
         return button
 
+    def _pointer_over_cards(self, event: tk.Event) -> bool:
+        try:
+            widget = self.root.winfo_containing(event.x_root, event.y_root)
+        except (KeyError, tk.TclError):
+            return False
+        while widget is not None:
+            if widget is self.card_list_frame:
+                return True
+            widget = widget.master
+        return False
+
     def _scroll_cards(self, event: tk.Event) -> None:
-        self.card_canvas.yview_scroll(int(-event.delta / 120), "units")
+        if not self._pointer_over_cards(event):
+            return
+        first, last = self.card_canvas.yview()
+        if first <= 0.0 and last >= 1.0:
+            return  # everything fits; do not let the list drift
+        steps = -event.delta / 120 * 3
+        self.card_canvas.yview_scroll(int(steps) or (-1 if event.delta > 0 else 1), "units")
 
     def home_path(self) -> Path:
         value = self.home_var.get().strip()

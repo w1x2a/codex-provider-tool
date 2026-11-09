@@ -1,5 +1,10 @@
 # 更新记录
 
+## [v1.0.13](https://github.com/w1x2a/codex-provider-tool/releases/tag/v1.0.13) · 列表滚动修复
+
+- 修复主界面供应商列表只能在空白处用滚轮：现在鼠标在任意卡片上都能滚动，每格 3 行；弹出对话框不受影响。
+- 右侧滚动条改为深色细条（悬停、按住会变亮），内容一屏放得下时自动隐藏，也不会被滚动错位。
+
 ## [v1.0.12](https://github.com/w1x2a/codex-provider-tool/releases/tag/v1.0.12) · 只显示中转站支持的模型
 
 - 切换供应商或设置模型后，桌面模型目录里当前中转站 `/models` 不支持的模型会被隐藏（`visibility = "hide"`），不删除条目、保留模型资料。
