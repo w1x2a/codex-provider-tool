@@ -114,6 +114,54 @@ class CodexProviderToolTests(unittest.TestCase):
             self.assertEqual(data["model"], "gpt-6")
             self.assertEqual(chat.read_bytes(), b"keep")
 
+    def test_setting_model_adds_missing_entry_to_desktop_catalog(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            config = home / "config.toml"
+            catalog = home / "catalog.json"
+            chat = home / "sessions" / "one.jsonl"
+            chat.parent.mkdir()
+            chat.write_bytes(b"keep")
+            config.write_text(
+                'model_provider = "custom"\nmodel = "gpt-6"\nmodel_catalog_json = "catalog.json"\n',
+                encoding="utf-8",
+            )
+            template = {
+                "slug": "gpt-6", "display_name": "gpt-6", "description": "gpt-6",
+                "visibility": "list", "context_window": 272000,
+                "service_tiers": [{"id": "priority"}], "upgrade": {"model": "x"},
+            }
+            catalog.write_text(json.dumps({"models": [template]}), encoding="utf-8")
+
+            MODULE.set_active_model(home, "deepseek-v4-flash")
+
+            models = json.loads(catalog.read_text(encoding="utf-8"))["models"]
+            self.assertEqual([m["slug"] for m in models], ["deepseek-v4-flash", "gpt-6"])
+            added = models[0]
+            self.assertEqual(added["display_name"], "deepseek-v4-flash")
+            self.assertEqual(added["context_window"], 272000)
+            self.assertEqual(added["service_tiers"], [])
+            self.assertIsNone(added["upgrade"])
+            self.assertEqual(models[1], template)
+            self.assertTrue(list(home.glob("catalog.json.bak-provider-tool-*")))
+            self.assertEqual(chat.read_bytes(), b"keep")
+
+            before = catalog.read_bytes()
+            self.assertIsNone(MODULE.ensure_model_in_catalog(home))
+            MODULE.set_active_model(home, "gpt-6")
+            self.assertEqual(catalog.read_bytes(), before)
+
+    def test_catalog_untouched_when_not_configured_or_missing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            config = home / "config.toml"
+            config.write_text('model = "old"\n', encoding="utf-8")
+            MODULE.set_active_model(home, "new-model")
+            self.assertEqual(sorted(p.name for p in home.glob("*.json")), [])
+            config.write_text('model = "old"\nmodel_catalog_json = "missing.json"\n', encoding="utf-8")
+            MODULE.set_active_model(home, "new-model")
+            self.assertFalse((home / "missing.json").exists())
+
     def test_upsert_and_switch_preserve_existing_tables(self):
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)

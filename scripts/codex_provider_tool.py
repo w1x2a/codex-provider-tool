@@ -678,6 +678,17 @@ def activate_provider(
     home: Path, provider_id: str, model: str | None = None,
     restore_official_identity: bool = False, api_key: str | None = None,
 ) -> tuple[str, list[Path]]:
+    active_id, backups = _activate_provider(home, provider_id, model, restore_official_identity, api_key)
+    catalog_backup = ensure_model_in_catalog(home)
+    if catalog_backup:
+        backups.append(catalog_backup)
+    return active_id, backups
+
+
+def _activate_provider(
+    home: Path, provider_id: str, model: str | None,
+    restore_official_identity: bool, api_key: str | None,
+) -> tuple[str, list[Path]]:
     text, data = read_config(home / "config.toml")
     target = find_provider(data, provider_id)
     active = find_provider(data, None)
@@ -807,6 +818,55 @@ def set_active_model(home: Path, model: str) -> Path | None:
     text, _ = read_config(config_path)
     backup = backup_file(config_path, "provider-tool")
     atomic_write(config_path, set_top_level_value(text, "model", toml_string(selected)))
+    ensure_model_in_catalog(home)
+    return backup
+
+
+def model_catalog_path(home: Path, data: dict[str, Any]) -> Path | None:
+    raw = data.get("model_catalog_json")
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    path = Path(os.path.expandvars(os.path.expanduser(raw.strip())))
+    return path if path.is_absolute() else home / path
+
+
+def ensure_model_in_catalog(home: Path, model: str | None = None) -> Path | None:
+    """Add the active model to the desktop model catalog when it is missing.
+
+    The Codex desktop picker only offers models listed in ``model_catalog_json``;
+    a configured model absent from that list silently falls back to another
+    entry. Only an existing catalog is touched, entries are only appended, and
+    chat data is never read or written. Returns the catalog backup, if any.
+    """
+    _, data = read_config(home / "config.toml")
+    raw_model = model if model is not None else data.get("model")
+    selected = raw_model.strip() if isinstance(raw_model, str) else ""
+    catalog = model_catalog_path(home, data)
+    if not selected or catalog is None or not catalog.is_file():
+        return None
+    try:
+        payload = json.loads(catalog.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
+        return None
+    models = payload.get("models") if isinstance(payload, dict) else None
+    if not isinstance(models, list):
+        return None
+    entries = [entry for entry in models if isinstance(entry, dict)]
+    if any(entry.get("slug") == selected for entry in entries):
+        return None
+    template = next((entry for entry in entries if entry.get("visibility") == "list"), None)
+    if template is None:
+        template = entries[0] if entries else None
+    if template is None:
+        return None
+    entry = json.loads(json.dumps(template))
+    entry.update({"slug": selected, "display_name": selected, "description": selected, "upgrade": None})
+    for key in ("service_tiers", "additional_speed_tiers"):
+        if key in entry:
+            entry[key] = []
+    models.insert(0, entry)
+    backup = backup_file(catalog, "provider-tool")
+    atomic_write(catalog, json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
     return backup
 
 
