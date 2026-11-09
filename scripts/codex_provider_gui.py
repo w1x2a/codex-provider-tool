@@ -26,6 +26,7 @@ from codex_provider_tool import (
     launch_codex_login,
     normalize_base_url,
     probe_provider,
+    provider_request_key,
     read_config,
     repair_collapsed_provider_headers,
     resolve_codex_home,
@@ -503,7 +504,7 @@ class ProviderApp:
         try:
             active_id, backups = apply_provider(self.home_path(), provider_id, restore_official_identity=restore_official_identity)
             self.refresh()
-            self._log_status(f"配置已保存 · 会话标识 {active_id} · {len(backups)} 个备份 · 请完全退出并重新打开 Codex，实际请求尚未验证")
+            self._log_status(f"配置已保存 · 模型 {self._current_model()} · 模型列表已同步 · {len(backups)} 个备份 · 请完全退出并重新打开 Codex")
         except Exception as exc:
             self.show_error(exc)
 
@@ -528,7 +529,7 @@ class ProviderApp:
         try:
             _, data = read_config(self.home_path() / "config.toml")
             provider = find_provider(data, provider_id)
-            key, source = load_auth_key(self.home_path())
+            key, source = provider_request_key(self.home_path(), data, provider), "provider"
         except Exception as exc:
             self.show_error(exc)
             return
@@ -587,7 +588,8 @@ class ProviderApp:
 
         def fetch() -> None:
             try:
-                key, _ = load_auth_key(self.home_path())
+                _, data = read_config(self.home_path() / "config.toml")
+                key = provider_request_key(self.home_path(), data, provider)
                 result = probe_provider(provider, key, 10)
                 if not result.ok:
                     raise ToolError(result.message)

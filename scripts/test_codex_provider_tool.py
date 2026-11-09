@@ -199,6 +199,53 @@ class CodexProviderToolTests(unittest.TestCase):
             server.shutdown()
             server.server_close()
 
+    def test_activating_relay_switches_model_and_list_using_its_own_token(self):
+        class TokenModels(BaseHTTPRequestHandler):
+            def do_GET(self):  # noqa: N802
+                ok = self.headers.get("Authorization") == "Bearer relay-b-token"
+                payload = json.dumps({"data": [{"id": "gpt-6"}, {"id": "gpt-5.5"}]} if ok else {"error": "no"}).encode()
+                self.send_response(200 if ok else 401)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+
+            def log_message(self, *_args):
+                return
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), TokenModels)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                home = Path(directory)
+                (home / "auth.json").write_text('{"OPENAI_API_KEY": "relay-a-key"}', encoding="utf-8")
+                (home / "config.toml").write_text(
+                    'model_provider = "relay_a"\nmodel = "deepseek-v4-flash"\nmodel_catalog_json = "catalog.json"\n'
+                    '[model_providers.relay_a]\nname = "A"\nbase_url = "http://127.0.0.1:9/v1"\n'
+                    'wire_api = "responses"\nrequires_openai_auth = false\n'
+                    '[model_providers.relay_b]\nname = "B"\n'
+                    f'base_url = "http://127.0.0.1:{server.server_port}/v1"\n'
+                    'wire_api = "responses"\nrequires_openai_auth = false\n'
+                    'experimental_bearer_token = "relay-b-token"\n',
+                    encoding="utf-8",
+                )
+                catalog = home / "catalog.json"
+                catalog.write_text(json.dumps({"models": [
+                    {"slug": "deepseek-v4-flash", "visibility": "list"},
+                    {"slug": "gpt-6", "visibility": "hide"},
+                ]}), encoding="utf-8")
+                (home / "catalog.json.provider-tool-hidden.json").write_text('["gpt-6"]', encoding="utf-8")
+
+                MODULE.activate_provider(home, "relay_b")
+
+                _, data = MODULE.read_config(home / "config.toml")
+                self.assertEqual(data["model"], "gpt-6")
+                visibility = {m["slug"]: m["visibility"] for m in json.loads(catalog.read_text(encoding="utf-8"))["models"]}
+                self.assertEqual(visibility, {"gpt-5.5": "list", "deepseek-v4-flash": "hide", "gpt-6": "list"})
+        finally:
+            server.shutdown()
+            server.server_close()
+
     def test_catalog_untouched_when_not_configured_or_missing(self):
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)

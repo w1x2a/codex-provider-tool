@@ -679,7 +679,19 @@ def activate_provider(
     restore_official_identity: bool = False, api_key: str | None = None,
 ) -> tuple[str, list[Path]]:
     active_id, backups = _activate_provider(home, provider_id, model, restore_official_identity, api_key)
-    catalog_backup = ensure_model_in_catalog(home)
+    _, data = read_config(home / "config.toml")
+    relay_models = active_provider_models(home, data)
+    current_model = str(data.get("model") or "").strip()
+    if model is None and relay_models and current_model not in relay_models:
+        # The previous provider's model does not exist here; pick one this relay serves.
+        config_path = home / "config.toml"
+        text, _ = read_config(config_path)
+        selected = choose_recommended_model(relay_models, current_model)
+        config_backup = backup_file(config_path, "provider-tool")
+        if config_backup:
+            backups.append(config_backup)
+        atomic_write(config_path, set_top_level_value(text, "model", toml_string(selected)))
+    catalog_backup = ensure_model_in_catalog(home, relay_models=relay_models)
     if catalog_backup:
         backups.append(catalog_backup)
     return active_id, backups
@@ -847,12 +859,45 @@ def active_provider_models(
         return None
     if provider.official or not provider.base_url:
         return []
-    key, _ = load_auth_key(home)
     try:
-        result = probe_provider(provider, key, timeout)
+        result = probe_provider(provider, provider_request_key(home, data, provider), timeout)
     except ToolError:
         return None
     return result.models if result.ok and result.models else None
+
+
+def provider_request_key(home: Path, data: dict[str, Any], provider: Provider) -> str | None:
+    """The key Codex itself would send to this provider (never printed).
+
+    Providers with their own credentials (static bearer token or env_key) must
+    not be probed with the global auth.json key, which belongs to another relay.
+    """
+    raw_providers = data.get("model_providers") or {}
+    raw = raw_providers.get(provider.provider_id) if isinstance(raw_providers, dict) else None
+    if isinstance(raw, dict):
+        token = raw.get("experimental_bearer_token")
+        if isinstance(token, str) and token:
+            return token
+        env_key = raw.get("env_key")
+        if isinstance(env_key, str) and env_key:
+            return os.environ.get(env_key) or None
+    if provider.current:
+        key, _ = load_auth_key(home)
+        return key
+    return saved_relay_api_key(home, provider) or load_auth_key(home)[0]
+
+
+RECOMMENDED_MODELS = ("gpt-6-astra", "gpt-6", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.6", "gpt-5.5")
+
+
+def choose_recommended_model(models: list[str], current_model: str) -> str:
+    available = sorted(set(models), key=str.casefold)
+    lookup = {item.casefold(): item for item in available}
+    for candidate in (current_model, *RECOMMENDED_MODELS):
+        match = lookup.get(candidate.strip().casefold())
+        if match:
+            return match
+    return available[0] if available else "gpt-5.6-luna"
 
 
 def catalog_hidden_record(catalog: Path) -> Path:
@@ -861,7 +906,7 @@ def catalog_hidden_record(catalog: Path) -> Path:
 
 def ensure_model_in_catalog(
     home: Path, model: str | None = None, extra_models: list[str] | None = None,
-    fetch_provider_models: bool = True,
+    fetch_provider_models: bool = True, relay_models: list[str] | None | object = ...,
 ) -> Path | None:
     """Sync the desktop model catalog with the active model and relay.
 
@@ -895,7 +940,8 @@ def ensure_model_in_catalog(
 
     raw_model = model if model is not None else data.get("model")
     active_model = raw_model.strip() if isinstance(raw_model, str) else ""
-    relay_models = active_provider_models(home, data) if fetch_provider_models else None
+    if relay_models is ...:
+        relay_models = active_provider_models(home, data) if fetch_provider_models else None
     wanted: list[str] = []
     candidates = [active_model] + list(extra_models or []) + list(relay_models or [])
     known = {entry.get("slug") for entry in entries}
@@ -937,6 +983,12 @@ def ensure_model_in_catalog(
                 entry["visibility"] = "hide"
                 hidden.add(slug)
                 visibility_changed = True
+    # The configured model must always be selectable, even if the relay list is unknown.
+    for entry in models:
+        if isinstance(entry, dict) and entry.get("slug") == active_model and entry.get("visibility") != "list":
+            entry["visibility"] = "list"
+            hidden.discard(active_model)
+            visibility_changed = True
 
     if not added and not visibility_changed:
         return None
@@ -1063,7 +1115,10 @@ def command_models(args: argparse.Namespace) -> int:
     home = resolve_codex_home(args.codex_home)
     _, data = read_config(home / "config.toml")
     provider = find_provider(data, args.provider_id)
-    key, source = load_auth_key(home, args.api_key, args.api_key_env)
+    if args.api_key or os.environ.get(args.api_key_env):
+        key, source = load_auth_key(home, args.api_key, args.api_key_env)
+    else:
+        key, source = provider_request_key(home, data, provider), "provider credentials"
     result = probe_provider(provider, key, args.timeout)
     print(f"Provider: {provider.provider_id} ({provider.name})")
     print(f"Endpoint: {result.url}")

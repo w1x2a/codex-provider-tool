@@ -1,5 +1,11 @@
 # 更新记录
 
+## [v1.0.14](https://github.com/w1x2a/codex-provider-tool/releases/tag/v1.0.14) · 切换时自动换模型和模型列表
+
+- 修复：切换到自带 Key（`experimental_bearer_token` / `env_key`）的中转站后，模型列表获取用错了 `auth.json` 里另一个中转站的 Key，返回 401，桌面菜单没有同步。现在获取列表（切换、模型对话框、检测、`models` 命令）都用该中转站自己的凭据。
+- 切换中转站时，如果原来的模型新中转站不支持，自动换成新中转站支持的推荐模型，并同步桌面模型列表。
+- 当前配置的模型在桌面菜单里始终显示。
+
 ## [v1.0.13](https://github.com/w1x2a/codex-provider-tool/releases/tag/v1.0.13) · 列表滚动修复
 
 - 修复主界面供应商列表只能在空白处用滚轮：现在鼠标在任意卡片上都能滚动，每格 3 行；弹出对话框不受影响。
