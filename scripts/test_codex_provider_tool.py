@@ -167,9 +167,34 @@ class CodexProviderToolTests(unittest.TestCase):
                 )
                 catalog = home / "catalog.json"
                 catalog.write_text(json.dumps({"models": [{"slug": "gpt-6", "visibility": "list"}]}), encoding="utf-8")
+                catalog.write_text(json.dumps({"models": [
+                    {"slug": "gpt-6", "visibility": "list", "context_window": 272000},
+                    {"slug": "codex-auto-review", "visibility": "hide"},
+                ]}), encoding="utf-8")
                 MODULE.set_active_model(home, "relay-model")
-                slugs = [m["slug"] for m in json.loads(catalog.read_text(encoding="utf-8"))["models"]]
-                self.assertEqual(slugs, ["relay-model", "another-model", "gpt-6"])
+                models = json.loads(catalog.read_text(encoding="utf-8"))["models"]
+                self.assertEqual([m["slug"] for m in models], ["relay-model", "another-model", "gpt-6", "codex-auto-review"])
+                visibility = {m["slug"]: m["visibility"] for m in models}
+                self.assertEqual(visibility, {
+                    "relay-model": "list", "another-model": "list",
+                    "gpt-6": "hide", "codex-auto-review": "hide",
+                })
+                record = home / "catalog.json.provider-tool-hidden.json"
+                self.assertEqual(json.loads(record.read_text(encoding="utf-8")), ["gpt-6"])
+
+                # Switching to the official login shows only what this tool hid.
+                config = home / "config.toml"
+                config.write_text(
+                    config.read_text(encoding="utf-8").replace('model_provider = "relay"', 'model_provider = "openai"'),
+                    encoding="utf-8",
+                )
+                MODULE.set_active_model(home, "gpt-6")
+                models = json.loads(catalog.read_text(encoding="utf-8"))["models"]
+                visibility = {m["slug"]: m["visibility"] for m in models}
+                self.assertEqual(visibility["gpt-6"], "list")
+                self.assertEqual(visibility["codex-auto-review"], "hide")
+                self.assertEqual(models[2]["context_window"], 272000)
+                self.assertFalse(record.exists())
         finally:
             server.shutdown()
             server.server_close()

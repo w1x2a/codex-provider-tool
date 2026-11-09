@@ -833,32 +833,46 @@ def model_catalog_path(home: Path, data: dict[str, Any]) -> Path | None:
 CATALOG_PROBE_TIMEOUT = 8.0
 
 
-def active_provider_models(home: Path, data: dict[str, Any], timeout: float = CATALOG_PROBE_TIMEOUT) -> list[str]:
-    """Best-effort list of models reported by the active relay's /models endpoint."""
+def active_provider_models(
+    home: Path, data: dict[str, Any], timeout: float = CATALOG_PROBE_TIMEOUT,
+) -> list[str] | None:
+    """Models reported by the active relay's /models endpoint.
+
+    Returns ``[]`` for the official provider (catalog shown in full) and ``None``
+    when the relay list is unknown (not reachable), so visibility is left alone.
+    """
     try:
         provider = find_provider(data, None)
     except ToolError:
-        return []
+        return None
     if provider.official or not provider.base_url:
         return []
     key, _ = load_auth_key(home)
     try:
         result = probe_provider(provider, key, timeout)
     except ToolError:
-        return []
-    return result.models if result.ok else []
+        return None
+    return result.models if result.ok and result.models else None
+
+
+def catalog_hidden_record(catalog: Path) -> Path:
+    return catalog.with_name(f"{catalog.name}.provider-tool-hidden.json")
 
 
 def ensure_model_in_catalog(
     home: Path, model: str | None = None, extra_models: list[str] | None = None,
     fetch_provider_models: bool = True,
 ) -> Path | None:
-    """Add the active model and the active relay's models to the desktop catalog.
+    """Sync the desktop model catalog with the active model and relay.
 
     The Codex desktop picker only offers models listed in ``model_catalog_json``;
     a configured model absent from that list silently falls back to another
-    entry. Only an existing catalog is touched, missing entries are appended
-    (existing ones are never changed), and chat data is never read or written.
+    entry. Missing models (the active one plus everything the active relay
+    reports via /models) are appended. When the relay list is known, listed
+    entries the relay does not support are hidden (``visibility = "hide"``)
+    instead of deleted, and recorded in a sidecar file so they are shown again
+    once a provider supports them or the official login is active. Only an
+    existing catalog is touched; chat data is never read or written.
     Returns the catalog backup, if any.
     """
     _, data = read_config(home / "config.toml")
@@ -880,29 +894,59 @@ def ensure_model_in_catalog(
         return None
 
     raw_model = model if model is not None else data.get("model")
+    active_model = raw_model.strip() if isinstance(raw_model, str) else ""
+    relay_models = active_provider_models(home, data) if fetch_provider_models else None
     wanted: list[str] = []
-    candidates = [raw_model] + list(extra_models or [])
-    if fetch_provider_models:
-        candidates += active_provider_models(home, data)
+    candidates = [active_model] + list(extra_models or []) + list(relay_models or [])
     known = {entry.get("slug") for entry in entries}
     for name in candidates:
         slug = name.strip() if isinstance(name, str) else ""
         if slug and slug not in known and slug not in wanted:
             wanted.append(slug)
-    if not wanted:
-        return None
 
     added = []
     for slug in wanted:
         entry = json.loads(json.dumps(template))
-        entry.update({"slug": slug, "display_name": slug, "description": slug, "upgrade": None})
+        entry.update({"slug": slug, "display_name": slug, "description": slug, "upgrade": None, "visibility": "list"})
         for key in ("service_tiers", "additional_speed_tiers"):
             if key in entry:
                 entry[key] = []
         added.append(entry)
     models[:0] = added
+
+    record_path = catalog_hidden_record(catalog)
+    try:
+        hidden = set(json.loads(record_path.read_text(encoding="utf-8")))
+    except (OSError, ValueError, TypeError):
+        hidden = set()
+    hidden_before = set(hidden)
+    visibility_changed = False
+    if relay_models is not None:
+        # [] means official login: show everything this tool hid earlier.
+        supported = set(relay_models) | {active_model} if relay_models else None
+        for entry in models:
+            if not isinstance(entry, dict) or not isinstance(entry.get("slug"), str):
+                continue
+            slug = entry["slug"]
+            if supported is None or slug in supported:
+                if slug in hidden:
+                    entry["visibility"] = "list"
+                    hidden.discard(slug)
+                    visibility_changed = True
+            elif entry.get("visibility") == "list":
+                entry["visibility"] = "hide"
+                hidden.add(slug)
+                visibility_changed = True
+
+    if not added and not visibility_changed:
+        return None
     backup = backup_file(catalog, "provider-tool")
     atomic_write(catalog, json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+    if hidden != hidden_before:
+        if hidden:
+            atomic_write(record_path, json.dumps(sorted(hidden), ensure_ascii=False, indent=2) + "\n")
+        else:
+            record_path.unlink(missing_ok=True)
     return backup
 
 

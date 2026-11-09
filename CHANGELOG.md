@@ -1,5 +1,10 @@
 # 更新记录
 
+## [v1.0.12](https://github.com/w1x2a/codex-provider-tool/releases/tag/v1.0.12) · 只显示中转站支持的模型
+
+- 切换供应商或设置模型后，桌面模型目录里当前中转站 `/models` 不支持的模型会被隐藏（`visibility = "hide"`），不删除条目、保留模型资料。
+- 被隐藏的模型记录在 `<目录>.provider-tool-hidden.json`；切到支持它们的中转站或官方登录时自动恢复显示。原本就隐藏的条目不动，当前模型始终显示；中转站获取失败时不改显示状态。
+
 ## [v1.0.11](https://github.com/w1x2a/codex-provider-tool/releases/tag/v1.0.11) · 桌面模型目录同步
 
 - 修复：切换模型或供应商后 Codex 桌面应用仍显示旧模型。桌面应用只认 `model_catalog_json` 指向的模型目录，配置的模型（如 `deepseek-v4-flash`）不在目录里时会退回到其他模型。

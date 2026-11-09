@@ -4,24 +4,26 @@
 
 普通切换保持活动 `model_provider` 会话标识不变，减少因 Provider ID 改变导致旧聊天不可见的问题。工具不编辑 Codex SQLite、会话 JSONL 或聊天正文，也不提供通用聊天记录修复功能。
 
-[下载 Windows EXE](https://github.com/w1x2a/codex-provider-tool/releases/download/v1.0.11/CodexProviderTool.exe) · [下载完整 ZIP](https://github.com/w1x2a/codex-provider-tool/releases/download/v1.0.11/CodexProviderTool-windows-x64.zip) · [所有版本](https://github.com/w1x2a/codex-provider-tool/releases) · [更新记录](CHANGELOG.md)
+[下载 Windows EXE](https://github.com/w1x2a/codex-provider-tool/releases/download/v1.0.12/CodexProviderTool.exe) · [下载完整 ZIP](https://github.com/w1x2a/codex-provider-tool/releases/download/v1.0.12/CodexProviderTool-windows-x64.zip) · [所有版本](https://github.com/w1x2a/codex-provider-tool/releases) · [更新记录](CHANGELOG.md)
 
 ## 下载与运行
 
-下载链接固定到当前已发布版本 **v1.0.11**；`main` 分支还可能包含尚未创建 Release 的修复，具体见[更新记录](CHANGELOG.md)。
+下载链接固定到当前已发布版本 **v1.0.12**；`main` 分支还可能包含尚未创建 Release 的修复，具体见[更新记录](CHANGELOG.md)。
 
 | 文件 | 用途 |
 | --- | --- |
-| [CodexProviderTool.exe](https://github.com/w1x2a/codex-provider-tool/releases/download/v1.0.11/CodexProviderTool.exe) | 图形界面，下载后双击，无需安装 Python |
-| [CodexProviderTool-cli.exe](https://github.com/w1x2a/codex-provider-tool/releases/download/v1.0.11/CodexProviderTool-cli.exe) | 命令行检查、切换和模型设置 |
-| [CodexProviderTool-windows-x64.zip](https://github.com/w1x2a/codex-provider-tool/releases/download/v1.0.11/CodexProviderTool-windows-x64.zip) | GUI、CLI、PowerShell 包装脚本、说明与校验文件 |
-| [SHA256SUMS.txt](https://github.com/w1x2a/codex-provider-tool/releases/download/v1.0.11/SHA256SUMS.txt) | 对照检查 EXE 的 SHA-256 |
+| [CodexProviderTool.exe](https://github.com/w1x2a/codex-provider-tool/releases/download/v1.0.12/CodexProviderTool.exe) | 图形界面，下载后双击，无需安装 Python |
+| [CodexProviderTool-cli.exe](https://github.com/w1x2a/codex-provider-tool/releases/download/v1.0.12/CodexProviderTool-cli.exe) | 命令行检查、切换和模型设置 |
+| [CodexProviderTool-windows-x64.zip](https://github.com/w1x2a/codex-provider-tool/releases/download/v1.0.12/CodexProviderTool-windows-x64.zip) | GUI、CLI、PowerShell 包装脚本、说明与校验文件 |
+| [SHA256SUMS.txt](https://github.com/w1x2a/codex-provider-tool/releases/download/v1.0.12/SHA256SUMS.txt) | 对照检查 EXE 的 SHA-256 |
 
 要求：Windows x64。工具可以查看配置，但官方登录与中转 API-key 登录仍需要可用的 Codex CLI；Windows 的“官方登录”还需要 PowerShell 7，且 `codex`、`pwsh` 可从 PATH 找到。
 
-本版发布附件只有 Windows 产物。仓库保留 Linux 构建脚本，但旧 Linux 包不包含本版全部新功能，不能当作 v1.0.11 使用。
+本版发布附件只有 Windows 产物。仓库保留 Linux 构建脚本，但旧 Linux 包不包含本版全部新功能，不能当作 v1.0.12 使用。
 
 ## 新功能一览
+
+v1.0.12 起，Codex 桌面模型菜单只显示当前中转站支持的模型：切换后中转站 `/models` 没有的模型会在目录里标记为隐藏（`visibility = "hide"`，不删除，保留原有模型资料），被隐藏的模型记录在目录旁的 `*.provider-tool-hidden.json`。切到支持它们的中转站或官方登录时自动恢复显示；中转站获取失败时不改显示状态；当前选中的模型始终显示。
 
 v1.0.11 修复「切换后 Codex 桌面菜单仍是旧模型」：桌面应用只显示 `model_catalog_json` 模型目录里的模型。现在设置模型或切换供应商后，工具会把当前模型和中转站 `/models` 返回的模型中目录缺少的那些自动追加进去（先备份目录，已有条目不改，未配置目录时不创建），重启 Codex 后即可在菜单里选择。
 
