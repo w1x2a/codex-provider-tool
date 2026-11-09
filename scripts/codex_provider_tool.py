@@ -830,19 +830,40 @@ def model_catalog_path(home: Path, data: dict[str, Any]) -> Path | None:
     return path if path.is_absolute() else home / path
 
 
-def ensure_model_in_catalog(home: Path, model: str | None = None) -> Path | None:
-    """Add the active model to the desktop model catalog when it is missing.
+CATALOG_PROBE_TIMEOUT = 8.0
+
+
+def active_provider_models(home: Path, data: dict[str, Any], timeout: float = CATALOG_PROBE_TIMEOUT) -> list[str]:
+    """Best-effort list of models reported by the active relay's /models endpoint."""
+    try:
+        provider = find_provider(data, None)
+    except ToolError:
+        return []
+    if provider.official or not provider.base_url:
+        return []
+    key, _ = load_auth_key(home)
+    try:
+        result = probe_provider(provider, key, timeout)
+    except ToolError:
+        return []
+    return result.models if result.ok else []
+
+
+def ensure_model_in_catalog(
+    home: Path, model: str | None = None, extra_models: list[str] | None = None,
+    fetch_provider_models: bool = True,
+) -> Path | None:
+    """Add the active model and the active relay's models to the desktop catalog.
 
     The Codex desktop picker only offers models listed in ``model_catalog_json``;
     a configured model absent from that list silently falls back to another
-    entry. Only an existing catalog is touched, entries are only appended, and
-    chat data is never read or written. Returns the catalog backup, if any.
+    entry. Only an existing catalog is touched, missing entries are appended
+    (existing ones are never changed), and chat data is never read or written.
+    Returns the catalog backup, if any.
     """
     _, data = read_config(home / "config.toml")
-    raw_model = model if model is not None else data.get("model")
-    selected = raw_model.strip() if isinstance(raw_model, str) else ""
     catalog = model_catalog_path(home, data)
-    if not selected or catalog is None or not catalog.is_file():
+    if catalog is None or not catalog.is_file():
         return None
     try:
         payload = json.loads(catalog.read_text(encoding="utf-8-sig"))
@@ -852,19 +873,34 @@ def ensure_model_in_catalog(home: Path, model: str | None = None) -> Path | None
     if not isinstance(models, list):
         return None
     entries = [entry for entry in models if isinstance(entry, dict)]
-    if any(entry.get("slug") == selected for entry in entries):
-        return None
     template = next((entry for entry in entries if entry.get("visibility") == "list"), None)
     if template is None:
         template = entries[0] if entries else None
     if template is None:
         return None
-    entry = json.loads(json.dumps(template))
-    entry.update({"slug": selected, "display_name": selected, "description": selected, "upgrade": None})
-    for key in ("service_tiers", "additional_speed_tiers"):
-        if key in entry:
-            entry[key] = []
-    models.insert(0, entry)
+
+    raw_model = model if model is not None else data.get("model")
+    wanted: list[str] = []
+    candidates = [raw_model] + list(extra_models or [])
+    if fetch_provider_models:
+        candidates += active_provider_models(home, data)
+    known = {entry.get("slug") for entry in entries}
+    for name in candidates:
+        slug = name.strip() if isinstance(name, str) else ""
+        if slug and slug not in known and slug not in wanted:
+            wanted.append(slug)
+    if not wanted:
+        return None
+
+    added = []
+    for slug in wanted:
+        entry = json.loads(json.dumps(template))
+        entry.update({"slug": slug, "display_name": slug, "description": slug, "upgrade": None})
+        for key in ("service_tiers", "additional_speed_tiers"):
+            if key in entry:
+                entry[key] = []
+        added.append(entry)
+    models[:0] = added
     backup = backup_file(catalog, "provider-tool")
     atomic_write(catalog, json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
     return backup

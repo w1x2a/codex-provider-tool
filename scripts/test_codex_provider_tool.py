@@ -151,6 +151,29 @@ class CodexProviderToolTests(unittest.TestCase):
             MODULE.set_active_model(home, "gpt-6")
             self.assertEqual(catalog.read_bytes(), before)
 
+    def test_switching_syncs_all_relay_models_into_catalog(self):
+        server = ThreadingHTTPServer(("127.0.0.1", 0), ModelHandler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                home = Path(directory)
+                (home / "config.toml").write_text(
+                    'model_provider = "relay"\nmodel = "relay-model"\nmodel_catalog_json = "catalog.json"\n'
+                    '[model_providers.relay]\nname = "Relay"\n'
+                    f'base_url = "http://127.0.0.1:{server.server_port}/v1"\n'
+                    'wire_api = "responses"\nrequires_openai_auth = false\n',
+                    encoding="utf-8",
+                )
+                catalog = home / "catalog.json"
+                catalog.write_text(json.dumps({"models": [{"slug": "gpt-6", "visibility": "list"}]}), encoding="utf-8")
+                MODULE.set_active_model(home, "relay-model")
+                slugs = [m["slug"] for m in json.loads(catalog.read_text(encoding="utf-8"))["models"]]
+                self.assertEqual(slugs, ["relay-model", "another-model", "gpt-6"])
+        finally:
+            server.shutdown()
+            server.server_close()
+
     def test_catalog_untouched_when_not_configured_or_missing(self):
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
