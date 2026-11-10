@@ -2,7 +2,7 @@
 
 v1.0.10 支持 `context --tokens 200000` 设置全局默认上下文，`context --reset` 恢复模型默认值。只修改顶层 `model_context_window`，自动备份，需重启 Codex 加载。
 
-本说明对应 v1.0.13 源码与 Windows CLI。图形界面下载、功能概览和常见问题见 [项目 README](../README.md)。
+本说明对应 v1.0.14 源码与 Windows CLI。图形界面下载、功能概览和常见问题见 [项目 README](../README.md)。
 
 ## 入口与目录
 

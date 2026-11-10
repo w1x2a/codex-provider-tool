@@ -4,24 +4,26 @@
 
 普通切换保持活动 `model_provider` 会话标识不变，减少因 Provider ID 改变导致旧聊天不可见的问题。工具不编辑 Codex SQLite、会话 JSONL 或聊天正文，也不提供通用聊天记录修复功能。
 
-[下载 Windows EXE](https://github.com/w1x2a/codex-provider-tool/releases/download/v1.0.13/CodexProviderTool.exe) · [下载完整 ZIP](https://github.com/w1x2a/codex-provider-tool/releases/download/v1.0.13/CodexProviderTool-windows-x64.zip) · [所有版本](https://github.com/w1x2a/codex-provider-tool/releases) · [更新记录](CHANGELOG.md)
+[下载 Windows EXE](https://github.com/w1x2a/codex-provider-tool/releases/download/v1.0.14/CodexProviderTool.exe) · [下载完整 ZIP](https://github.com/w1x2a/codex-provider-tool/releases/download/v1.0.14/CodexProviderTool-windows-x64.zip) · [所有版本](https://github.com/w1x2a/codex-provider-tool/releases) · [更新记录](CHANGELOG.md)
 
 ## 下载与运行
 
-下载链接固定到当前已发布版本 **v1.0.13**；`main` 分支还可能包含尚未创建 Release 的修复，具体见[更新记录](CHANGELOG.md)。
+下载链接固定到当前已发布版本 **v1.0.14**；`main` 分支还可能包含尚未创建 Release 的修复，具体见[更新记录](CHANGELOG.md)。
 
 | 文件 | 用途 |
 | --- | --- |
-| [CodexProviderTool.exe](https://github.com/w1x2a/codex-provider-tool/releases/download/v1.0.13/CodexProviderTool.exe) | 图形界面，下载后双击，无需安装 Python |
-| [CodexProviderTool-cli.exe](https://github.com/w1x2a/codex-provider-tool/releases/download/v1.0.13/CodexProviderTool-cli.exe) | 命令行检查、切换和模型设置 |
-| [CodexProviderTool-windows-x64.zip](https://github.com/w1x2a/codex-provider-tool/releases/download/v1.0.13/CodexProviderTool-windows-x64.zip) | GUI、CLI、PowerShell 包装脚本、说明与校验文件 |
-| [SHA256SUMS.txt](https://github.com/w1x2a/codex-provider-tool/releases/download/v1.0.13/SHA256SUMS.txt) | 对照检查 EXE 的 SHA-256 |
+| [CodexProviderTool.exe](https://github.com/w1x2a/codex-provider-tool/releases/download/v1.0.14/CodexProviderTool.exe) | 图形界面，下载后双击，无需安装 Python |
+| [CodexProviderTool-cli.exe](https://github.com/w1x2a/codex-provider-tool/releases/download/v1.0.14/CodexProviderTool-cli.exe) | 命令行检查、切换和模型设置 |
+| [CodexProviderTool-windows-x64.zip](https://github.com/w1x2a/codex-provider-tool/releases/download/v1.0.14/CodexProviderTool-windows-x64.zip) | GUI、CLI、PowerShell 包装脚本、说明与校验文件 |
+| [SHA256SUMS.txt](https://github.com/w1x2a/codex-provider-tool/releases/download/v1.0.14/SHA256SUMS.txt) | 对照检查 EXE 的 SHA-256 |
 
 要求：Windows x64。工具可以查看配置，但官方登录与中转 API-key 登录仍需要可用的 Codex CLI；Windows 的“官方登录”还需要 PowerShell 7，且 `codex`、`pwsh` 可从 PATH 找到。
 
-本版发布附件只有 Windows 产物。仓库保留 Linux 构建脚本，但旧 Linux 包不包含本版全部新功能，不能当作 v1.0.13 使用。
+本版发布附件只有 Windows 产物。仓库保留 Linux 构建脚本，但旧 Linux 包不包含本版全部新功能，不能当作 v1.0.14 使用。
 
 ## 新功能一览
+
+v1.0.14 起，点「切换/应用」时会用该中转站自己的凭据获取模型列表并同步桌面菜单；原模型新中转站不支持时自动换成它支持的推荐模型，当前模型始终显示。
 
 v1.0.13 改进主界面列表滚动：鼠标在任意卡片上都能用滚轮滚动，右侧换成深色细滚动条，内容放得下时自动隐藏。
 
